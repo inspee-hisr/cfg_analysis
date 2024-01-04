@@ -145,7 +145,7 @@ ggsave("1_caves_species_region.png",
        width = 50,
        height = 36,
        units = "cm",
-       dpi = 300,
+       dpi = 100,
        path = "website_plots/")
 
 # Second plot, 2, species class barplot
@@ -189,7 +189,7 @@ ggsave("2_species_class_barplot.png",
        width = 50,
        height = 40,
        units = "cm",
-       dpi = 300,
+       dpi = 100,
        path = "website_plots/")
 
 # Third plot, 3, species knowledge accumulation
@@ -292,7 +292,7 @@ ggsave("3_species_occurrence_accumulation_classification.png",
        width = 50,
        height = 36,
        units = "cm",
-       dpi = 300,
+       dpi = 100,
        path = "website_plots/")
 
 
@@ -371,7 +371,7 @@ ggsave("4_species_ecological_classification_all_and_endemic.png",
        width = 50,
        height = 36,
        units = "cm",
-       dpi = 300,
+       dpi = 100,
        path = "website_plots/")
 
 # Fifth plot, 5, species red list and greed red data book 
@@ -440,7 +440,7 @@ ggsave("5_red_lists_data_species.png",
        width = 50,
        height = 36,
        units = "cm",
-       dpi = 300,
+       dpi = 100,
        path = "website_plots/")
 
 # Sixth plot, 6, Protection status species
@@ -513,7 +513,7 @@ ggsave("6_species_protection_data_classification.png",
        width = 50,
        height = 36,
        units = "cm",
-       dpi = 300,
+       dpi = 100,
        path = "website_plots/")
 
 # Seventh plot, 7, Protection status caves
@@ -587,7 +587,7 @@ ggsave("7_caves_protection_data_type.png",
        width = 50,
        height = 36,
        units = "cm",
-       dpi = 300,
+       dpi = 100,
        path = "website_plots/")
 
 # Table for statistics tab on the website:
