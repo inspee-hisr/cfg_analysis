@@ -416,8 +416,8 @@ red_lists_data_species_plot <- ggplot()+
               position=position_dodge(width=0.9),
               vjust=-0.25,
               size=6)+
-    scale_y_continuous(breaks = seq(0,800,50),
-                       limits = c(0,800),
+    scale_y_continuous(breaks = seq(0,850,50),
+                       limits = c(0,850),
                        expand = c(0.01,0.4))+
     scale_fill_manual(values = c("lightpink1","firebrick1"),name="")+
     labs(x="Categories", y= "Number of species")+
