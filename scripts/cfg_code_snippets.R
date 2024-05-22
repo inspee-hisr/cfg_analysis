@@ -33,20 +33,20 @@ library(raster) ##Load the Raster Library
 library(vegan)
 library(ggdendro)
 
-data_files <- list.files(path = "Data")
+data_files <- list.files(path = "data")
  
 # Data import from Database Export, the files are choosen automatically based on their name. The folder Data must contain only the latest data files.
-Cave_References <- read_delim(file = paste0("Data/",grep("Cave_References",data_files,value = TRUE)),delim = "\t")
+Cave_References <- read_delim(file = paste0("data/",grep("Cave_References",data_files,value = TRUE)),delim = "\t")
  
-caves <- read_delim(file = paste0("Data/",grep("Caves",data_files,value = TRUE)),delim = "\t")
+caves <- read_delim(file = paste0("data/",grep("Caves",data_files,value = TRUE)),delim = "\t")
 caves$Longitude <- as.numeric(caves$Longitude)
 caves$Latitude <- as.numeric(caves$Latitude)
 
-census <- read_delim(file = paste0("Data/",grep("Census_\\d",data_files,value = TRUE)),delim = "\t")
+census <- read_delim(file = paste0("data/",grep("Census_\\d",data_files,value = TRUE)),delim = "\t")
  
-Census_references <- read_delim(file = paste0("Data/",grep("Census_references",data_files,value = TRUE)),delim = "\t")
+Census_references <- read_delim(file = paste0("data/",grep("Census_references",data_files,value = TRUE)),delim = "\t")
  
-species <- read_delim(file = paste0("Data/",grep("Species_",data_files,value = TRUE)),delim = "\t") %>% mutate(Classification=gsub(pattern="\\?",replacement = "",x = Classification))# Data import from Database Export
+species <- read_delim(file = paste0("data/",grep("Species_",data_files,value = TRUE)),delim = "\t") %>% mutate(Classification=gsub(pattern="\\?",replacement = "",x = Classification))# Data import from Database Export
 
 
 census$species_epithet <- as.character(lapply(strsplit(as.character(census$Species), split=" "), "[", n=2))
@@ -67,7 +67,7 @@ caves_Region <- caves %>% dplyr::select(Cave_ID, Region) %>% distinct() %>% grou
 ggplot()+
   geom_col(data = caves_Region, aes(x=Region, y= number_of_caves, fill=Region),show.legend = F)+
   geom_text(data = caves_Region,aes(x =Region,y= number_of_caves, label=number_of_caves), position=position_dodge(width=0.7), vjust=-0.25,size=2.8)+
-  scale_y_continuous(breaks = seq(0,200,50),limits = c(0,200))+
+  scale_y_continuous(breaks = seq(0,250,50),limits = c(0,260))+
   #ggtitle("Caves Greece")+
   labs(x="Administrative Region", y= "Number of caves")+
   scale_fill_manual(values = caves_Region$color_manual)+
@@ -75,7 +75,7 @@ ggplot()+
   theme(panel.grid.minor = element_blank(), panel.grid.major = element_blank(),axis.text.x = element_text(angle = 45, hjust = 1))
 
 
-ggsave("caves_Region_barplot.jpeg", plot = last_plot(), device = "jpeg", dpi = 300,path = "Plots/")
+ggsave("caves_Region_barplot.jpeg", plot = last_plot(), device = "jpeg", dpi = 300,path = "plots/")
 
 #' Both species and caves per region.
 species_region_endemic <- census_all_species_all_caves %>% filter(species_epithet!="sp.") %>% filter(Distribution=="Endemic to Greece") %>% dplyr::select(Species,Distribution, Region) %>% distinct(.) %>% group_by(Region) %>% summarise(number_of_endemic_species=n()) %>% na.omit()
