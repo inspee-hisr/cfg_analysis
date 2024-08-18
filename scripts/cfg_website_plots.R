@@ -342,8 +342,8 @@ species_ecological_classification_all_and_endemic <- ggplot()+
             position=position_dodge(width=0.9),
             vjust=-0.25,
             size=6)+
-  scale_y_continuous(breaks = seq(0,375,25),
-                     limits = c(0,375),
+  scale_y_continuous(breaks = seq(0,400,25),
+                     limits = c(0,400),
                      expand = c(0.01,0.4))+
   scale_fill_manual(labels=c("All species","Species endemic to Greece"),
                     values = c("lightgoldenrod2","lightpink1"),
