@@ -4,6 +4,7 @@
 library(readr)
 library(dplyr)
 library(tibble)
+library(sf)
 library(ggplot2)
 library(tidyr)
 library(kableExtra)
@@ -55,7 +56,17 @@ census_long_man <- tibble(ReferenceShort=unlist(census_long_str_man),
 
 census_long_man$Reference_ID <- as.numeric(census_long_man$Reference_ID)
 
-# main website plots
+####################### export ###################
+
+caves_sf <- caves |>
+    filter(!(is.na(Longitude))) |>
+    st_as_sf(coords=c("Longitude","Latitude"),
+             remove=F,
+             crs="WGS84")
+
+st_write(caves_sf, "results/caves.geojson", delete_dsn = TRUE)
+
+######################## main website plots ###########################
 
 # First plot, 1, caves per species region
 
