@@ -11,7 +11,7 @@ library(tidyr)
 library(RColorBrewer)
 
 # Load data
-# setwd("../") # remove # when running from interactively
+#setwd("../") # remove # when running from interactively
 print("Loading data")
 data_files <- list.files(path = "data")
  
@@ -143,4 +143,16 @@ ggsave("map_greece_plot_lines_grid_species.png",
        plot = grid_10k_species_abundance_plot,
        device = "png",
        width = 30,height = 30,units = "cm",dpi = 300 ,path = "plots/")
+
+
+# araneae
+araneae <- locations_inland |>
+    filter(Order=="Araneae")
+
+# number of caves
+length(unique(araneae$Cave_Name))
+
+# number of references
+araneae |> separate_rows(Reference_ID.x, sep = "\\|") |> distinct(Reference_ID.x)
+
 
