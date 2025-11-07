@@ -38,6 +38,7 @@ census$species_epithet <- as.character(lapply(strsplit(as.character(census$Speci
 
 census_all_species <- census |> left_join(species,by=c("Species"="Species_Full_Name"))
 
+# ------------------ master table ----------------- #
 census_all_species_all_caves <- census_all_species |> dplyr::select(-Cave_Name) |> left_join(caves, by=c("Cave_ID"="Cave_ID"))
 
 census_long_str_man <- strsplit(x = census_all_species$Reference_Short,split = "|",fixed=TRUE)
@@ -55,9 +56,6 @@ census_long_man <- tibble(ReferenceShort=unlist(census_long_str_man),
     mutate(Species=trimws(Species,"r"))
 
 census_long_man$Reference_ID <- as.numeric(census_long_man$Reference_ID)
-
-
-
 
 ################################ load spatial data ##############################
 
@@ -144,15 +142,69 @@ ggsave("map_greece_plot_lines_grid_species.png",
        device = "png",
        width = 30,height = 30,units = "cm",dpi = 300 ,path = "plots/")
 
+###########################################################
+# -------------------- Census Long ---------------------- #
+###########################################################
 
-# araneae
-araneae <- locations_inland |>
-    filter(Order=="Araneae")
+census_long <- census_long_man |>
+    left_join(species, by=c("Species"="Species_Full_Name")) |>
+    left_join(caves %>% dplyr::select(Cave_ID,
+                                      Cave_Name,
+                                      Longitude,
+                                      Latitude,
+                                      Cave_Synonyms,
+                                      Cave_Type,
+                                      Region,
+                                      Municipality,
+                                      Altitude),
+              by=c("Cave_ID"="Cave_ID")) |>
+    left_join(Census_references, by=c("Reference_ID"="ID"))
 
 # number of caves
-length(unique(araneae$Cave_Name))
-
+length(unique(census_long$Cave_ID))
+# number of caves
+length(unique(census_long$Cave_ID))
+# number of species
+length(unique(census_long$Species))
 # number of references
-araneae |> separate_rows(Reference_ID.x, sep = "\\|") |> distinct(Reference_ID.x)
+length(unique(census_long$Reference_ID))
+# number of occurrences
+census_long |> distinct(Cave_ID,Species) |> nrow()
+
+write_delim(census_long, "results/cfg_data_long.tsv",delim="\t")
 
 
+############################## araneae ########################
+
+species_araneae <- species |>
+    filter(Order=="Araneae")
+
+census_araneae <- census |>
+    filter(Species_ID %in% species_araneae$`Species ID`)
+
+caves_araneae <- caves |>
+    filter(Cave_ID %in% unique(census_araneae$Cave_ID)) |>
+    dplyr::select(Cave_ID,Cave_Name,Longitude,Latitude, Cave_Synonyms, Cave_Type, Region, Municipality, Altitude)
+
+#census_references_araneae <- Census_references |> 
+#    filter(ID %in% unique())
+
+census_araneae_long <- census_long_man |>
+    filter(Species %in% species_araneae$Species_Full_Name) |>
+    left_join(species_araneae, by=c("Species"="Species_Full_Name")) |>
+    left_join(caves_araneae) |>
+    left_join(Census_references, by=c("Reference_ID"="ID")) |>
+    dplyr::select(-n)
+
+# number of caves
+length(unique(census_araneae_long$Cave_ID))
+# number of caves
+length(unique(census_araneae_long$Cave_ID))
+# number of species
+length(unique(census_araneae_long$Species))
+# number of references
+length(unique(census_araneae_long$Reference_ID))
+# number of occurrences
+census_araneae_long |> distinct(Cave_ID,Species) |> nrow()
+
+write_delim(census_araneae_long, "results/cfg_araneae_data_long.tsv",delim="\t")
