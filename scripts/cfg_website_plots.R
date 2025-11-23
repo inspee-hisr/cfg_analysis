@@ -64,7 +64,7 @@ caves_sf <- caves |>
              remove=F,
              crs="WGS84")
 
-st_write(caves_sf, "results/caves.geojson", delete_dsn = TRUE)
+st_write(caves_sf, "results/caves.geojson", elete_dsn = TRUE, append=FALSE)
 
 ######################## main website plots ###########################
 
@@ -392,11 +392,8 @@ iucn_species <- species |>
     summarise(number_of_species=n()) |>
     mutate(frequency=round(number_of_species/sum(number_of_species),digits = 3)) |>
     mutate(Red_List="IUCN Red List") |>
-    dplyr::rename(Categories=IUCN_Red_List) |>
-    rbind(tibble(Categories="EN - Endangered",
-                       number_of_species=0,
-                       frequency=0,
-                       Red_List="IUCN Red List"))
+    dplyr::rename(Categories=IUCN_Red_List) 
+
 
 greek_red_data_species <- species |>
     group_by(Greek_Red_Data_Book) |>
