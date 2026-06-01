@@ -68,13 +68,48 @@ st_write(caves_sf, "results/caves.geojson", elete_dsn = TRUE, append=FALSE)
 
 ######################## main website plots ###########################
 
-# First plot, 1, caves per species region
-
+# Zero plot, 0, caves region
 caves_Region <- caves |>
     distinct(Cave_ID, Region) |>
     group_by(Region) |> summarize(number_of_caves=n()) |>
     na.omit() |>
     mutate(color_manual=colorRampPalette(c("orangered2","palegreen3","skyblue1","slateblue1","pink2","sienna3"),space="Lab")( 14 ))
+
+
+caves_region_plot <- ggplot()+
+  geom_col(data = caves_Region,
+           aes(x=Region, y= number_of_caves, fill=color_manual),
+           width=0.82,
+           #position = position_dodge(width = 0.82),
+           show.legend = F
+           )+
+  geom_text(data = caves_Region,
+            aes(x =Region,y= number_of_caves, label=number_of_caves),
+            vjust=-0.25,
+            size=5)+
+  labs(x="Region", y= "Number of Caves")+
+  theme_bw()+
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        axis.text.y=element_text(margin = margin(t = 0, r = 0, b = 0, l = 10,unit = "pt"),size = 18),
+        axis.text.x = element_text(angle = 45, hjust = 1,size = 18),
+        axis.title = element_text(size=22),
+        panel.border = element_blank(),
+        axis.line.x = element_line(colour = 'black', linewidth = 0.3),
+        axis.line.y = element_line(colour = 'black', linewidth = 0.3))
+
+ggsave("0_caves_region.png",
+       plot = caves_region_plot,
+       device = "png",
+       width = 35,
+       height = 25,
+       units = "cm",
+       dpi = 100,
+       path = "website_plots/")
+
+
+# First plot, 1, caves per species region
+
 
 species_region_endemic <- census_all_species_all_caves |>
     filter(species_epithet!="sp.") |>
