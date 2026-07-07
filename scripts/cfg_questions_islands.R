@@ -188,6 +188,245 @@ save_tsv(sar_data |>
 
 ################################################################
 cat("\n================================================================\n")
+cat("ISLANDS — EFFORT-CORRECTED SAR\n")
+cat("================================================================\n")
+
+# ── Add effort and non-obligate column ───────────────────────────────────────
+# n_caves is the effort proxy: number of distinct caves sampled per island.
+# n_refs is a secondary effort proxy (references covering island caves).
+cave_refs_island <- census_long_man |>
+    distinct(Cave_ID, Reference_ID) |>
+    inner_join(caves_island |> filter(is_island) |>
+                   select(Cave_ID, NAME_3),
+               by = "Cave_ID") |>
+    group_by(NAME_3) |>
+    summarise(n_refs_island = n_distinct(Reference_ID), .groups = "drop")
+
+sar_eff <- sar_data |>
+    mutate(n_non_obligate = pmax(n_species - n_obligate, 0L),
+           log_A          = log10(area_island_km2),
+           log_E          = log10(pmax(n_caves, 1L))) |>
+    left_join(cave_refs_island, by = "NAME_3") |>
+    mutate(log_E_refs = log10(pmax(replace_na(n_refs_island, 1L), 1L)))
+
+cat("Islands used for effort-corrected SAR:", nrow(sar_eff), "\n")
+cat("Effort range (n_caves):", min(sar_eff$n_caves), "–", max(sar_eff$n_caves), "\n")
+
+# ── Helper: fit effort-corrected model ───────────────────────────────────────
+# Model: log10(S) ~ log10(A) + log10(n_caves)
+# Partial coefficient on log10(A) is the effort-corrected z.
+run_sar_eff <- function(df, y_col, label, effort_col = "log_E") {
+    df_fit      <- df[df[[y_col]] > 0 & df$n_caves >= 1, ]
+    df_fit$ysar <- df_fit[[y_col]]
+    df_fit$logE <- df_fit[[effort_col]]
+    if (nrow(df_fit) < 5) return(NULL)
+    fit_naive <- lm(log10(ysar) ~ log_A,       data = df_fit)
+    fit_eff   <- lm(log10(ysar) ~ log_A + logE, data = df_fit)
+    ci_naive  <- confint(fit_naive, "log_A", level = 0.95)
+    ci_eff    <- confint(fit_eff,   "log_A", level = 0.95)
+    tibble(
+        type          = label,
+        n_islands     = nrow(df_fit),
+        z_naive       = round(coef(fit_naive)["log_A"], 3),
+        z_naive_lo    = round(ci_naive[1], 3),
+        z_naive_hi    = round(ci_naive[2], 3),
+        z_eff         = round(coef(fit_eff)["log_A"], 3),
+        z_eff_lo      = round(ci_eff[1], 3),
+        z_eff_hi      = round(ci_eff[2], 3),
+        beta_effort   = round(coef(fit_eff)["logE"], 3),
+        r2_naive      = round(summary(fit_naive)$r.squared, 3),
+        r2_eff        = round(summary(fit_eff)$r.squared, 3),
+        p_area_eff    = round(coef(summary(fit_eff))["log_A", "Pr(>|t|)"], 5),
+        p_effort      = round(coef(summary(fit_eff))["logE",  "Pr(>|t|)"], 5)
+    )
+}
+
+sar_eff_results <- bind_rows(
+    run_sar_eff(sar_eff, "n_species",       "All species"),
+    run_sar_eff(sar_eff, "n_obligate",      "Obligate (Troglo+Stygo)"),
+    run_sar_eff(sar_eff, "n_non_obligate",  "Non-obligate"),
+    run_sar_eff(sar_eff, "n_endemic",       "Endemic to Greece")
+)
+cat("\nEffort-corrected SAR slopes:\n")
+print(sar_eff_results |> select(type, n_islands, z_naive, z_eff, z_eff_lo, z_eff_hi,
+                                 beta_effort, r2_eff, p_area_eff))
+save_tsv(sar_eff_results, "q_islands_sar_effort_corrected")
+
+# ── Test: obligate z vs non-obligate z ───────────────────────────────────────
+# Method 1 — Wald test on separate models (independent coefficients)
+# The two groups are mutually exclusive so models are independent;
+# SE of the difference = sqrt(SE_obl^2 + SE_nobl^2).
+cat("\n--- Slope comparison: obligate vs non-obligate ---\n")
+df_obl_fit  <- sar_eff |> filter(n_obligate     > 0, n_caves >= 1)
+df_nobl_fit <- sar_eff |> filter(n_non_obligate > 0, n_caves >= 1)
+
+fit_obl  <- lm(log10(n_obligate)     ~ log_A + log_E, data = df_obl_fit)
+fit_nobl <- lm(log10(n_non_obligate) ~ log_A + log_E, data = df_nobl_fit)
+
+z_obl  <- coef(fit_obl) ["log_A"];  se_obl  <- coef(summary(fit_obl)) ["log_A","Std. Error"]
+z_nobl <- coef(fit_nobl)["log_A"];  se_nobl <- coef(summary(fit_nobl))["log_A","Std. Error"]
+
+delta_z    <- round(z_obl - z_nobl, 3)
+se_delta   <- sqrt(se_obl^2 + se_nobl^2)
+wald_stat  <- delta_z / se_delta
+delta_z_ci <- round(delta_z + c(-1, 1) * qnorm(0.975) * se_delta, 3)
+wald_p     <- round(2 * (1 - pnorm(abs(wald_stat))), 5)   # two-sided
+wald_p_one <- round(pnorm(-wald_stat), 5)                  # one-sided: H_A: z_obl > z_nobl
+
+cat("z_obligate (effort-corrected) =", round(z_obl, 3),
+    "   SE =", round(se_obl, 3), "\n")
+cat("z_non-obligate (effort-corrected) =", round(z_nobl, 3),
+    "   SE =", round(se_nobl, 3), "\n")
+cat("z_obligate − z_non-obligate = ", delta_z,
+    "  95% CI [", delta_z_ci[1], ",", delta_z_ci[2], "]\n")
+cat("  Wald two-sided p =", wald_p,
+    "  one-sided (z_obl > z_nobl) p =", wald_p_one, "\n")
+if (delta_z_ci[1] > 0) {
+    cat("  → CI entirely > 0: obligate z significantly STEEPER after effort correction.\n")
+    cat("  → Consistent with stronger dispersal limitation in obligate cave fauna.\n")
+} else {
+    cat("  → CI overlaps 0: slope difference not significant at α = 0.05.\n")
+}
+
+# Method 2 — Fully parameterized stacked model (each group gets its own effort slope)
+# fauna*(log_A + log_E) allows separate z and beta_effort per fauna type.
+# The fauna:log_A interaction is the slope difference; no shared-slope constraint.
+df_stacked <- bind_rows(
+    df_obl_fit  |> transmute(NAME_3, richness = n_obligate,     log_A, log_E, fauna = "Obligate"),
+    df_nobl_fit |> transmute(NAME_3, richness = n_non_obligate, log_A, log_E, fauna = "Non-obligate")
+) |> mutate(fauna = factor(fauna, levels = c("Non-obligate", "Obligate")))
+
+fit_stack <- lm(log10(richness) ~ fauna * (log_A + log_E), data = df_stacked)
+stack_sum <- summary(fit_stack)
+stack_ci  <- confint(fit_stack, level = 0.95)
+int_term  <- "faunaObligate:log_A"
+stacked_delta    <- round(coef(fit_stack)[int_term], 3)
+stacked_delta_ci <- round(stack_ci[int_term, ], 3)
+stacked_delta_p  <- round(coef(stack_sum)[int_term, "Pr(>|t|)"], 5)
+cat("Stacked model (fauna*(log_A+log_E)):\n")
+cat("  Interaction (z_obl − z_nobl) =", stacked_delta,
+    "  95% CI [", stacked_delta_ci[1], ",", stacked_delta_ci[2], "]\n")
+cat("  p (interaction) =", stacked_delta_p, "\n")
+
+# ── Bootstrap sensitivity check ──────────────────────────────────────────────
+# Resample islands (with replacement) 4 000 times; refit both effort-corrected
+# models; record z_obligate − z_non-obligate.
+cat("\nBootstrap test (B = 4000): z_obligate − z_non-obligate\n")
+set.seed(2024)
+B <- 4000
+
+boot_diff <- vapply(seq_len(B), function(i) {
+    tryCatch({
+        b_o  <- df_obl_fit [sample(nrow(df_obl_fit),  replace = TRUE), ]
+        b_n  <- df_nobl_fit[sample(nrow(df_nobl_fit), replace = TRUE), ]
+        zo   <- coef(lm(log10(n_obligate)     ~ log_A + log_E, data = b_o))["log_A"]
+        zn   <- coef(lm(log10(n_non_obligate) ~ log_A + log_E, data = b_n))["log_A"]
+        zo - zn
+    }, error = function(e) NA_real_)
+}, FUN.VALUE = numeric(1))
+
+boot_diff <- boot_diff[!is.na(boot_diff)]
+boot_ci95 <- quantile(boot_diff, c(0.025, 0.975))
+boot_p    <- mean(boot_diff <= 0)   # one-sided: P(z_obl ≤ z_nobl)
+
+cat("Bootstrap 95% CI of (z_obligate − z_non-obligate): [",
+    round(boot_ci95[1], 3), ",", round(boot_ci95[2], 3), "]\n")
+cat("Bootstrap P(z_obligate ≤ z_non-obligate) =", round(boot_p, 4), "\n")
+
+slope_comparison <- tibble(
+    method      = c("Wald test (independent models)",
+                    "Stacked model (fauna * (log_A + log_E))",
+                    "Bootstrap (B = 4 000)"),
+    delta_z     = c(delta_z,         stacked_delta,         round(mean(boot_diff), 3)),
+    ci_lo       = c(delta_z_ci[1],   stacked_delta_ci[1],   round(boot_ci95[1], 3)),
+    ci_hi       = c(delta_z_ci[2],   stacked_delta_ci[2],   round(boot_ci95[2], 3)),
+    p_value     = c(wald_p_one,      stacked_delta_p,       round(boot_p, 4)),
+    p_type      = c("one-sided (z_obl>z_nobl)", "two-sided", "one-sided (z_obl>z_nobl)"),
+    significant = c(wald_p_one < 0.05, stacked_delta_p < 0.05, boot_p < 0.05)
+)
+print(slope_comparison)
+save_tsv(slope_comparison, "q_islands_sar_slope_comparison")
+
+# ── Partial regression plot (effort partialled out) ───────────────────────────
+# Partial residuals: regress out log_E from both log_A and log10(richness),
+# then plot residuals of richness ~ residuals of area. This is the visual
+# equivalent of the effort-corrected slope.
+partial_df <- function(df, y_col, label) {
+    df_fit <- df[df[[y_col]] > 0 & df$n_caves >= 1, ]
+    df_fit$ysar <- df_fit[[y_col]]
+    resid_A <- residuals(lm(log_A        ~ log_E, data = df_fit))
+    resid_S <- residuals(lm(log10(ysar) ~ log_E, data = df_fit))
+    tibble(NAME_3 = df_fit$NAME_3, res_A = resid_A, res_S = resid_S, type = label)
+}
+
+partial_data <- bind_rows(
+    partial_df(sar_eff, "n_species",      "All species"),
+    partial_df(sar_eff, "n_obligate",     "Obligate"),
+    partial_df(sar_eff, "n_non_obligate", "Non-obligate")
+)
+
+p_partial <- ggplot(partial_data, aes(x = res_A, y = res_S, colour = type)) +
+    geom_point(alpha = 0.6, size = 2) +
+    geom_smooth(method = "lm", formula = y ~ x, se = TRUE,
+                aes(fill = type), alpha = 0.15, linewidth = 0.9) +
+    scale_colour_manual(
+        values = c("All species"  = "#0072B2",
+                   "Obligate"     = "#009E73",
+                   "Non-obligate" = "#D55E00"),
+        name = NULL) +
+    scale_fill_manual(
+        values = c("All species"  = "#0072B2",
+                   "Obligate"     = "#009E73",
+                   "Non-obligate" = "#D55E00"),
+        name = NULL) +
+    labs(title    = "Effort-corrected species–area relationship",
+         subtitle = paste0(
+             "Partial regression: log10(richness) ~ log10(area) | log10(n_caves)\n",
+             "Obligate z = ", filter(sar_eff_results, type == "Obligate (Troglo+Stygo)")$z_eff,
+             " [", filter(sar_eff_results, type == "Obligate (Troglo+Stygo)")$z_eff_lo,
+             "–", filter(sar_eff_results, type == "Obligate (Troglo+Stygo)")$z_eff_hi, "]",
+             "   Non-obligate z = ", filter(sar_eff_results, type == "Non-obligate")$z_eff,
+             " [", filter(sar_eff_results, type == "Non-obligate")$z_eff_lo,
+             "–", filter(sar_eff_results, type == "Non-obligate")$z_eff_hi, "]"),
+         x = "log10(area)  |  effort",
+         y = "log10(richness)  |  effort") +
+    theme_cfg() +
+    theme(legend.position = c(0.18, 0.88),
+          legend.background = element_rect(fill = alpha("white", 0.8), colour = NA))
+save_plot(p_partial, "q_islands_sar_partial", w = 20, h = 14)
+
+# ── CI comparison plot: naive vs effort-corrected z ───────────────────────────
+z_compare <- sar_eff_results |>
+    select(type, z_naive, z_naive_lo, z_naive_hi, z_eff, z_eff_lo, z_eff_hi) |>
+    pivot_longer(c(z_naive, z_eff),
+                 names_to = "model", values_to = "z") |>
+    mutate(
+        ci_lo = if_else(model == "z_naive", z_naive_lo, z_eff_lo),
+        ci_hi = if_else(model == "z_naive", z_naive_hi, z_eff_hi),
+        model = recode(model,
+                       z_naive = "Naive SAR",
+                       z_eff   = "Effort-corrected SAR")
+    ) |>
+    select(type, model, z, ci_lo, ci_hi) |>
+    filter(type != "Endemic to Greece")   # keep the key comparison clean
+
+p_z <- ggplot(z_compare,
+              aes(x = type, y = z, colour = model,
+                  ymin = ci_lo, ymax = ci_hi)) +
+    geom_hline(yintercept = 0, colour = "#aaaaaa", linewidth = 0.4) +
+    geom_pointrange(position = position_dodge(width = 0.45), size = 0.7) +
+    scale_colour_manual(values = c("Naive SAR"           = "#aaaaaa",
+                                   "Effort-corrected SAR" = "#0072B2"),
+                        name = NULL) +
+    labs(title    = "SAR slopes before and after effort correction",
+         subtitle = "Points = z (slope); bars = 95% CI.  Effort proxy = log10(n_caves)",
+         x = NULL, y = "SAR slope z  [95% CI]") +
+    theme_cfg() +
+    theme(legend.position = "bottom")
+save_plot(p_z, "q_islands_sar_slope_comparison", w = 18, h = 12)
+
+################################################################
+cat("\n================================================================\n")
 cat("ISLANDS — RICHNESS RANKINGS\n")
 cat("================================================================\n")
 
