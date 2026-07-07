@@ -12,8 +12,10 @@ library(ggplot2)
 library(forcats)
 library(RColorBrewer)
 library(scales)
+library(ggrepel)
 
 source("scripts/cfg_load_data.R")
+source("scripts/cfg_plot_style.R")
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 save_tsv <- function(df, name) {
@@ -24,13 +26,6 @@ save_plot <- function(p, name, w = 18, h = 12) {
     ggsave(file.path("plots", paste0(name, ".png")),
            plot = p, width = w, height = h, units = "cm", dpi = 300)
     invisible(p)
-}
-theme_cfg <- function(base = 11) {
-    theme_bw(base_size = base) +
-    theme(panel.grid.minor  = element_blank(),
-          panel.grid.major  = element_blank(),
-          plot.title        = element_text(face = "bold"),
-          plot.subtitle     = element_text(colour = "grey40", size = base - 1))
 }
 
 cat("\n================================================================\n")
@@ -105,12 +100,12 @@ save_tsv(caves_per_region, "q_caves_per_region")
 p <- ggplot(caves_per_region,
             aes(x = fct_reorder(Region, n_caves), y = n_caves, fill = Region)) +
     geom_col(width = 0.75, show.legend = FALSE) +
-    geom_text(aes(label = n_caves), hjust = -0.2, size = 3.5) +
-    scale_fill_brewer(palette = "Set3") +
-    scale_y_continuous(expand = expansion(mult = c(0, 0.15))) +
+    geom_text(aes(label = n_caves), hjust = -0.2, size = 3.5, colour = "#333333") +
+    scale_fill_viridis_d(option = "D") +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.35))) +
     coord_flip() +
     labs(title = "Number of caves per region", x = NULL, y = "Number of caves") +
-    theme_cfg()
+    theme_cfg_bar()
 save_plot(p, "q_caves_per_region")
 
 # Q: Cave type distribution
@@ -124,11 +119,12 @@ save_tsv(caves_type, "q_caves_type")
 p <- ggplot(caves_type,
             aes(x = fct_reorder(Cave_Type, n_caves), y = n_caves, fill = Cave_Type)) +
     geom_col(width = 0.55, show.legend = FALSE) +
-    geom_text(aes(label = n_caves), hjust = -0.2, size = 4.5) +
-    scale_y_continuous(expand = expansion(mult = c(0, 0.18))) +
+    geom_text(aes(label = n_caves), hjust = -0.2, size = 4.5, colour = "#333333") +
+    scale_fill_viridis_d(option = "D") +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.35))) +
     coord_flip() +
     labs(title = "Cave type distribution", x = NULL, y = "Number of caves") +
-    theme_cfg()
+    theme_cfg_bar()
 save_plot(p, "q_caves_type", w = 14, h = 7)
 
 # Q: Altitudinal distribution
@@ -144,7 +140,7 @@ alt_summary <- caves_altitude |>
 
 p <- ggplot(caves_altitude, aes(x = Altitude, fill = Region)) +
     geom_histogram(binwidth = 100, colour = "white", linewidth = 0.2) +
-    scale_fill_brewer(palette = "Set3") +
+    scale_fill_viridis_d(option = "D") +
     scale_x_continuous(breaks = seq(0, 2500, 250)) +
     labs(title    = "Altitudinal distribution of caves",
          subtitle = paste0(nrow(caves_altitude), " caves with altitude data"),
@@ -169,7 +165,7 @@ p <- ggplot(caves_type_richness, aes(x = Cave_Type, y = n_species, fill = Cave_T
     geom_text(data = type_med,
               aes(x = Cave_Type, y = med, label = paste0("n=", n, "\nmed=", med)),
               size = 3, vjust = -1.2, inherit.aes = FALSE) +
-    scale_fill_brewer(palette = "Pastel1") +
+    scale_fill_viridis_d(option = "D") +
     scale_y_log10() +
     labs(title    = "Species richness by cave type",
          subtitle = "Caves with ≥ 1 species; log10 y-axis",
@@ -200,24 +196,24 @@ save_tsv(caves_region_richness, "q_caves_region_richness")
 p_total <- ggplot(caves_region_richness,
                   aes(x = fct_reorder(Region, total_species), y = total_species, fill = Region)) +
     geom_col(width = 0.75, show.legend = FALSE) +
-    geom_text(aes(label = total_species), hjust = -0.2, size = 3.5) +
-    scale_fill_brewer(palette = "Set3") +
-    scale_y_continuous(expand = expansion(mult = c(0, 0.15))) +
+    geom_text(aes(label = total_species), hjust = -0.2, size = 3.5, colour = "#333333") +
+    scale_fill_viridis_d(option = "D") +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.35))) +
     coord_flip() +
     labs(title = "Total cave species richness per region", x = NULL, y = "Total species") +
-    theme_cfg()
+    theme_cfg_bar()
 save_plot(p_total, "q_caves_region_total_richness")
 
 p_mean <- ggplot(caves_region_richness,
                  aes(x = fct_reorder(Region, mean_species), y = mean_species, fill = Region)) +
     geom_col(width = 0.75, show.legend = FALSE) +
-    geom_text(aes(label = mean_species), hjust = -0.2, size = 3.5) +
-    scale_fill_brewer(palette = "Set3") +
-    scale_y_continuous(expand = expansion(mult = c(0, 0.18))) +
+    geom_text(aes(label = mean_species), hjust = -0.2, size = 3.5, colour = "#333333") +
+    scale_fill_viridis_d(option = "D") +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.35))) +
     coord_flip() +
     labs(title = "Mean species richness per cave by region",
          x = NULL, y = "Mean species per cave") +
-    theme_cfg()
+    theme_cfg_bar()
 save_plot(p_mean, "q_caves_region_mean_richness")
 
 # Q: Caves with highest proportion of endemic species
@@ -234,15 +230,16 @@ p <- ggplot(caves_endemic_prop |> head(20) |>
                 mutate(Cave_Name = fct_reorder(Cave_Name, prop_endemic)),
             aes(x = Cave_Name, y = prop_endemic, fill = Region)) +
     geom_col(width = 0.75) +
-    geom_text(aes(label = percent(prop_endemic, accuracy = 1)), hjust = -0.2, size = 3) +
-    scale_fill_brewer(palette = "Set3") +
-    scale_y_continuous(expand = expansion(mult = c(0, 0.2)),
+    geom_text(aes(label = percent(prop_endemic, accuracy = 1)), hjust = -0.2, size = 3,
+              colour = "#333333") +
+    scale_fill_viridis_d(option = "D") +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.35)),
                        labels = percent_format()) +
     coord_flip() +
     labs(title    = "Caves with highest proportion of endemic-to-Greece species",
          subtitle = "Caves with ≥ 3 species",
          x = NULL, y = "Proportion endemic") +
-    theme_cfg() + theme(legend.position = "bottom")
+    theme_cfg_bar() + theme(legend.position = "bottom")
 save_plot(p, "q_caves_endemic_proportion", w = 22, h = 16)
 
 # Q: Caves with highest proportion of obligate species (Troglobiont + Stygobiont)
@@ -259,15 +256,16 @@ p <- ggplot(caves_obligate_prop |> head(20) |>
                 mutate(Cave_Name = fct_reorder(Cave_Name, prop_obligate)),
             aes(x = Cave_Name, y = prop_obligate, fill = Region)) +
     geom_col(width = 0.75) +
-    geom_text(aes(label = percent(prop_obligate, accuracy = 1)), hjust = -0.2, size = 3) +
-    scale_fill_brewer(palette = "Set3") +
-    scale_y_continuous(expand = expansion(mult = c(0, 0.2)),
+    geom_text(aes(label = percent(prop_obligate, accuracy = 1)), hjust = -0.2, size = 3,
+              colour = "#333333") +
+    scale_fill_viridis_d(option = "D") +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.35)),
                        labels = percent_format()) +
     coord_flip() +
     labs(title    = "Caves with highest proportion of obligate species",
          subtitle = "Caves with ≥ 3 species; obligate = Troglobiont + Stygobiont",
          x = NULL, y = "Proportion obligate") +
-    theme_cfg() + theme(legend.position = "bottom")
+    theme_cfg_bar() + theme(legend.position = "bottom")
 save_plot(p, "q_caves_obligate_proportion", w = 22, h = 16)
 
 ################################################################
@@ -322,7 +320,7 @@ p <- ggplot(refs_species_df, aes(x = n_refs, y = n_species)) +
     geom_point(aes(colour = Region), alpha = 0.6, size = 1.5) +
     geom_smooth(method = "lm", formula = y ~ x, colour = "black",
                 se = TRUE, linewidth = 0.8) +
-    scale_colour_brewer(palette = "Set3") +
+    scale_colour_viridis_d(option = "D") +
     labs(title    = "Sampling effort vs species richness per cave",
          subtitle = paste0("Spearman r = ", cor_val,
                            " (caves with ≥ 1 ref and ≥ 1 species)"),
@@ -348,7 +346,7 @@ p <- ggplot(caves_undersampled,
             aes(x = n_caves, y = mean_species, colour = mean_refs)) +
     geom_point(size = 5) +
     geom_text(aes(label = Region), vjust = -1, size = 2.8, colour = "grey20") +
-    scale_colour_gradient(low = "#d3f0ff", high = "#08519c", name = "Mean refs\nper cave") +
+    scale_colour_gradient(low = seq_lo, high = seq_hi, name = "Mean refs\nper cave") +
     scale_y_continuous(expand = expansion(mult = c(0.1, 0.2))) +
     labs(title    = "Under-sampled regions: many caves, few species per cave",
          subtitle = "Colour = mean references per cave (survey effort)",
@@ -394,7 +392,7 @@ p <- ggplot(
         aes(x = status, y = n, fill = status)) +
     geom_col(width = 0.5, show.legend = FALSE) +
     geom_text(aes(label = n), vjust = -0.4, size = 5) +
-    scale_fill_manual(values = c("Inside N2000" = "#27ae60", "Outside N2000" = "#e74c3c")) +
+    scale_fill_manual(values = prot_colours) +
     scale_y_continuous(expand = expansion(mult = c(0, 0.2))) +
     labs(title    = "Caves with troglobiont species: Natura2000 coverage",
          subtitle = paste0(troglo_n2000_overlap$total_troglo_caves,
@@ -423,12 +421,13 @@ p <- ggplot(caves_geology_summary,
             aes(x = fct_reorder(geology_group, n_caves), y = n_caves,
                 fill = geology_group)) +
     geom_col(width = 0.75, show.legend = FALSE) +
-    geom_text(aes(label = n_caves), hjust = -0.2, size = 3.5) +
-    scale_y_continuous(expand = expansion(mult = c(0, 0.15))) +
+    geom_text(aes(label = n_caves), hjust = -0.2, size = 3.5, colour = "#333333") +
+    scale_fill_viridis_d(option = "D") +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.35))) +
     coord_flip() +
     labs(title = "Cave geological substrate (from GeologicUnitView.gpkg)",
          x = NULL, y = "Number of caves (distinct Cave_ID)") +
-    theme_cfg()
+    theme_cfg_bar()
 save_plot(p, "q_caves_geology_substrate", w = 18, h = 10)
 
 ################################################################
@@ -466,7 +465,7 @@ save_tsv(jacc_df, "q_caves_troglo_beta_diversity")
 
 p <- ggplot(jacc_df, aes(x = region1, y = region2, fill = jaccard_dist)) +
     geom_tile() +
-    scale_fill_gradient2(low = "#2166ac", mid = "#f7f7f7", high = "#d73027",
+    scale_fill_gradient2(low = "#0072B2", mid = "#f7f7f7", high = "#D55E00",
                          midpoint = 0.5, limits = c(0, 1),
                          name = "Jaccard\ndissimilarity") +
     scale_x_discrete(guide = guide_axis(angle = 45)) +

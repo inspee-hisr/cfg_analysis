@@ -12,8 +12,10 @@ library(forcats)
 library(RColorBrewer)
 library(scales)
 library(vegan)
+library(ggrepel)
 
 source("scripts/cfg_load_data.R")
+source("scripts/cfg_plot_style.R")
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 save_tsv <- function(df, name) {
@@ -24,13 +26,6 @@ save_plot <- function(p, name, w = 18, h = 12) {
     ggsave(file.path("plots", paste0(name, ".png")),
            plot = p, width = w, height = h, units = "cm", dpi = 300)
     invisible(p)
-}
-theme_cfg <- function(base = 11) {
-    theme_bw(base_size = base) +
-    theme(panel.grid.minor  = element_blank(),
-          panel.grid.major  = element_blank(),
-          plot.title        = element_text(face = "bold"),
-          plot.subtitle     = element_text(colour = "grey40", size = base - 1))
 }
 
 ################################################################
@@ -94,11 +89,12 @@ p_bubble <- ggplot(island_summary |> filter(area_island_km2 > 0, n_species > 0),
                        size = n_caves, colour = NAME_2,
                        label = NAME_3)) +
     geom_point(alpha = 0.75) +
-    geom_text(aes(label = NAME_3), size = 2.5, vjust = -1, colour = "grey20") +
+    ggrepel::geom_text_repel(aes(label = NAME_3), size = 2.5, max.overlaps = 20,
+                             segment.colour = "#cccccc") +
     scale_x_log10(labels = label_comma()) +
     scale_y_log10() +
     scale_size_continuous(name = "Caves", range = c(2, 12)) +
-    scale_colour_brewer(palette = "Set1", name = "Island group") +
+    scale_colour_viridis_d(option = "D", name = "Island group") +
     labs(title    = "Island summary: area vs cave species richness",
          subtitle = "Bubble size = number of caves; log–log axes",
          x = "Island area (km², log scale)", y = "Total species (log scale)") +
@@ -157,8 +153,10 @@ p_sar <- ggplot(sar_long,
                 aes(fill = type), alpha = 0.15) +
     scale_x_log10(labels = label_comma()) +
     scale_y_log10() +
-    scale_colour_brewer(palette = "Dark2", name = NULL) +
-    scale_fill_brewer(palette   = "Dark2", name = NULL) +
+    scale_colour_manual(values = c("All species" = "#0072B2", "Obligate" = "#009E73",
+                                   "Endemic to Greece" = "#D55E00"), name = NULL) +
+    scale_fill_manual(values   = c("All species" = "#0072B2", "Obligate" = "#009E73",
+                                   "Endemic to Greece" = "#D55E00"), name = NULL) +
     labs(title    = "Species–area relationship (SAR) for Greek cave fauna",
          subtitle = "log–log regression; one point per island with ≥ 1 cave",
          x = "Island area (km², log scale)", y = "Species richness (log scale)") +
@@ -175,7 +173,7 @@ p_car <- ggplot(sar_data |> filter(n_caves > 0),
                 colour = "black", linewidth = 0.8) +
     scale_x_log10(labels = label_comma()) +
     scale_y_log10() +
-    scale_colour_brewer(palette = "Set1", name = "Island group") +
+    scale_colour_viridis_d(option = "D", name = "Island group") +
     labs(title    = "Caves–area relationship across Greek islands",
          subtitle = "log–log axes",
          x = "Island area (km², log scale)", y = "Number of caves (log scale)") +
@@ -239,17 +237,17 @@ p_rank <- ggplot(rank_long,
                  aes(x = NAME_3, y = n, fill = type)) +
     geom_col(position = "dodge", width = 0.75) +
     geom_text(aes(label = n), position = position_dodge(0.75),
-              hjust = -0.2, size = 2.8) +
-    scale_fill_manual(values = c("Total species" = "#2c7bb6",
-                                 "Endemic"        = "#d73027",
-                                 "Troglobiont"    = "#1a9641"),
+              hjust = -0.2, size = 2.8, colour = "#333333") +
+    scale_fill_manual(values = c("Total species" = "#0072B2",
+                                 "Endemic"        = "#D55E00",
+                                 "Troglobiont"    = "#009E73"),
                       name = NULL) +
-    scale_y_continuous(expand = expansion(mult = c(0, 0.2))) +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.35))) +
     coord_flip() +
     labs(title    = "Top 15 islands by species richness",
          subtitle = "Total species, endemics, and troglobionts",
          x = NULL, y = "Number of species") +
-    theme_cfg() +
+    theme_cfg_bar() +
     theme(legend.position = "bottom")
 save_plot(p_rank, "q_islands_richness_rank", w = 22, h = 16)
 
@@ -263,14 +261,15 @@ top15_density <- island_summary |>
 p_density <- ggplot(top15_density,
                     aes(x = NAME_3, y = species_per_km2, fill = NAME_2)) +
     geom_col(width = 0.75) +
-    geom_text(aes(label = round(species_per_km2, 3)), hjust = -0.2, size = 3) +
-    scale_fill_brewer(palette = "Set1", name = "Island group") +
-    scale_y_continuous(expand = expansion(mult = c(0, 0.2))) +
+    geom_text(aes(label = round(species_per_km2, 3)), hjust = -0.2, size = 3,
+              colour = "#333333") +
+    scale_fill_viridis_d(option = "D", name = "Island group") +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.35))) +
     coord_flip() +
     labs(title    = "Top 15 islands by cave species density",
          subtitle = "Species per km² (islands > 1 km²)",
          x = NULL, y = "Species per km²") +
-    theme_cfg() + theme(legend.position = "bottom")
+    theme_cfg_bar() + theme(legend.position = "bottom")
 save_plot(p_density, "q_islands_density", w = 20, h = 14)
 
 # Q: Island group comparison
@@ -293,7 +292,7 @@ save_tsv(island_group_comp, "q_islands_group_comparison")
 p_group <- ggplot(island_summary,
                   aes(x = NAME_2, y = n_species, fill = NAME_2)) +
     geom_boxplot(outlier.alpha = 0.5, width = 0.5, show.legend = FALSE) +
-    scale_fill_brewer(palette = "Set1") +
+    scale_fill_viridis_d(option = "D") +
     labs(title    = "Cave species richness by island group",
          subtitle = "Each box = one island in that group",
          x = NULL, y = "Total cave species per island") +
@@ -338,13 +337,13 @@ p_jacc <- ggplot(island_jaccard |>
                      mutate(NAME_3 = fct_reorder(NAME_3, jaccard_sim)),
                  aes(x = NAME_3, y = jaccard_sim)) +
     geom_col(aes(fill = jaccard_sim), width = 0.75, show.legend = FALSE) +
-    scale_fill_gradient(low = "#fee090", high = "#4575b4") +
+    scale_fill_gradient(low = seq_lo, high = seq_hi) +
     scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +
     coord_flip() +
     labs(title    = "Jaccard similarity of island cave fauna to mainland",
          subtitle = "Higher = more species shared with the mainland",
          x = NULL, y = "Jaccard similarity (0–1)") +
-    theme_cfg()
+    theme_cfg_bar()
 save_plot(p_jacc, "q_islands_jaccard", w = 18, h = 16)
 
 # Q: Strict island endemics — species on only 1 island
@@ -378,12 +377,13 @@ p_strict <- strict_island_endemic |>
     geom_col(width = 0.75) +
     geom_text(aes(label = n), position = position_stack(vjust = 0.5),
               size = 3, colour = "white", fontface = "bold") +
+    scale_fill_manual(values = clf_colours) +
     scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +
     coord_flip() +
     labs(title    = "Strict single-island endemic species by island",
          subtitle = "Species with records on only one island and no mainland record",
          x = NULL, y = "Number of species") +
-    theme_cfg() + theme(legend.position = "bottom")
+    theme_cfg_bar() + theme(legend.position = "bottom")
 save_plot(p_strict, "q_islands_strict_endemic", w = 20, h = 14)
 
 # Q: Beta diversity — pairwise Jaccard among island groups
@@ -425,7 +425,7 @@ p_heat <- ggplot(jacc_df,
                  aes(x = group_to, y = group_from, fill = jaccard_dist)) +
     geom_tile(colour = "white") +
     geom_text(aes(label = round(jaccard_dist, 2)), size = 3.5) +
-    scale_fill_gradient(low = "#fee090", high = "#d73027",
+    scale_fill_gradient(low = seq_lo, high = seq_hi,
                         name = "Jaccard\ndistance") +
     labs(title    = "Beta diversity among island groups and mainland",
          subtitle = "Pairwise Jaccard distances (0 = identical, 1 = no shared species)",
