@@ -514,6 +514,144 @@ p <- ggplot(threatened_n2000 |> tail(2),
     theme_cfg()
 save_plot(p, "q_species_threatened_n2000", w = 16, h = 10)
 
+################################################################
+cat("\n================================================================\n")
+cat("LOCUS TYPICUS, DATABASE LINKS, OCCURRENCE DISTRIBUTIONS\n")
+cat("================================================================\n")
+
+# Q: Locus Typicus — caves that are type localities for the most species
+cat("\n--- Q: Locus Typicus caves ---\n")
+locus_typicus_caves <- species |>
+    filter(!is.na(Locus_Typicus_Cave)) |>
+    distinct(Species_Full_Name, Class, Locus_Typicus_Cave, Locus_Typicus_Cave_ID) |>
+    group_by(Locus_Typicus_Cave_ID, Locus_Typicus_Cave) |>
+    summarise(n_species = n(), .groups = "drop") |>
+    arrange(desc(n_species))
+cat("Caves with Locus Typicus records:", nrow(locus_typicus_caves), "\n")
+cat("Total species with Greek cave type locality:",
+    sum(!is.na(species$Locus_Typicus_Cave)), "\n")
+print(head(locus_typicus_caves, 15))
+save_tsv(locus_typicus_caves, "q_species_locus_typicus_caves")
+
+locus_typicus_class <- species |>
+    filter(!is.na(Locus_Typicus_Cave)) |>
+    distinct(Species_Full_Name, Class) |>
+    count(Class, name = "n_species") |>
+    arrange(desc(n_species))
+save_tsv(locus_typicus_class, "q_species_locus_typicus_class")
+
+p <- ggplot(locus_typicus_caves |>
+                head(20) |>
+                mutate(Locus_Typicus_Cave = fct_reorder(Locus_Typicus_Cave, n_species)),
+            aes(x = Locus_Typicus_Cave, y = n_species, fill = n_species)) +
+    geom_col(width = 0.75, show.legend = FALSE) +
+    geom_text(aes(label = n_species), hjust = -0.2, size = 3) +
+    scale_fill_gradient(low = "#deebf7", high = "#08519c") +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.25))) +
+    coord_flip() +
+    labs(title    = "Top caves as type localities (Locus Typicus)",
+         subtitle = paste0(sum(!is.na(species$Locus_Typicus_Cave)),
+                           " species described from Greek cave type localities"),
+         x = NULL, y = "Number of species") +
+    theme_cfg()
+save_plot(p, "q_species_locus_typicus", w = 20, h = 13)
+
+# Q: External database link coverage (GBIF, IUCN, PESI, NCBI, Fauna Europaea)
+cat("\n--- Q: External database links coverage ---\n")
+db_links <- tibble(
+    database = c("GBIF", "IUCN", "PESI", "NCBI Taxonomy", "Fauna Europaea"),
+    n_linked = c(
+        sum(!is.na(species$Link_GBIF)),
+        sum(!is.na(species$Link_IUCN)),
+        sum(!is.na(species$Link_PESI)),
+        sum(!is.na(species$Link_NCBI)),
+        sum(!is.na(species$Link_Fauna_Europaea))
+    )
+) |>
+    mutate(
+        n_missing   = nrow(species) - n_linked,
+        prop_linked = round(n_linked / nrow(species), 3)
+    )
+print(db_links)
+save_tsv(db_links, "q_species_database_links")
+
+p <- ggplot(db_links,
+            aes(x = fct_reorder(database, prop_linked), y = prop_linked)) +
+    geom_col(fill = "#4393c3", width = 0.65) +
+    geom_text(aes(label = paste0(percent(prop_linked, accuracy = 1),
+                                  " (n=", n_linked, ")")),
+              hjust = -0.1, size = 3.2) +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.3)),
+                       labels = percent_format()) +
+    coord_flip() +
+    labs(title    = "External database link coverage",
+         subtitle = paste0("Total species in database: ", nrow(species)),
+         x = NULL, y = "Proportion of species with link") +
+    theme_cfg()
+save_plot(p, "q_species_database_links", w = 18, h = 10)
+
+# Q: Taxon occurrence distribution (hollow curve — most species found in few caves)
+cat("\n--- Q: Taxon occurrence distributions (hollow curve) ---\n")
+census_no_sp <- census_all_species |>
+    filter(!grepl("\\bsp\\.$", Species))
+
+taxon_occ <- bind_rows(
+    census_no_sp |> distinct(Cave_ID, Species) |>
+        count(Species, name = "n_caves") |>
+        count(n_caves, name = "n_taxa") |>
+        mutate(rank = "Species"),
+    census_no_sp |> distinct(Cave_ID, Genus) |>
+        count(Genus, name = "n_caves") |>
+        count(n_caves, name = "n_taxa") |>
+        mutate(rank = "Genus"),
+    census_no_sp |> distinct(Cave_ID, Family) |>
+        count(Family, name = "n_caves") |>
+        count(n_caves, name = "n_taxa") |>
+        mutate(rank = "Family"),
+    census_no_sp |> distinct(Cave_ID, Order) |>
+        count(Order, name = "n_caves") |>
+        count(n_caves, name = "n_taxa") |>
+        mutate(rank = "Order")
+) |>
+    rename(n_occurrences = n_caves)
+cat("Singleton species (found in 1 cave):",
+    taxon_occ$n_taxa[taxon_occ$rank == "Species" & taxon_occ$n_occurrences == 1], "\n")
+save_tsv(taxon_occ, "q_species_occurrence_distribution")
+
+p <- ggplot(taxon_occ, aes(x = n_occurrences, y = n_taxa)) +
+    geom_line(colour = "#4393c3") +
+    geom_point(colour = "#4393c3", size = 1) +
+    facet_wrap(~ factor(rank, levels = c("Species", "Genus", "Family", "Order")),
+               scales = "free", ncol = 2) +
+    labs(title    = "Taxon occurrence distributions (hollow curve)",
+         subtitle = "Number of taxa found in exactly n caves",
+         x = "Number of cave occurrences", y = "Number of taxa") +
+    theme_cfg()
+save_plot(p, "q_species_occurrence_distribution", w = 20, h = 16)
+
+# Q: Altitude gradient by ecological classification
+cat("\n--- Q: Altitude gradient by ecological classification ---\n")
+altitude_clf <- census_all_species_all_caves |>
+    filter(!grepl("\\bsp\\.$", Species), !is.na(Altitude), !is.na(Classification)) |>
+    distinct(Species, Classification, Altitude) |>
+    mutate(alt_bin = cut(Altitude, breaks = seq(0, 2400, by = 100))) |>
+    group_by(alt_bin, Classification) |>
+    summarise(n_species   = n_distinct(Species),
+              mean_alt    = mean(Altitude),
+              .groups     = "drop")
+save_tsv(altitude_clf, "q_species_altitude_by_classification")
+
+p <- ggplot(altitude_clf, aes(x = mean_alt, y = n_species, colour = Classification)) +
+    geom_line(linewidth = 0.8) +
+    scale_colour_brewer(palette = "Set1") +
+    scale_x_continuous(breaks = seq(0, 2400, 200)) +
+    labs(title    = "Species richness along altitude gradient by ecological classification",
+         x = "Altitude (m a.s.l.)", y = "Number of species per 100 m bin",
+         colour = NULL) +
+    theme_cfg() +
+    theme(legend.position = "bottom")
+save_plot(p, "q_species_altitude_by_classification", w = 22, h = 13)
+
 cat("\n================================================================\n")
 cat("DONE — results/ and plots/ updated\n")
 cat("================================================================\n")

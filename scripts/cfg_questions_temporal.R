@@ -408,6 +408,114 @@ recent_rate <- species_per_decade |>
 print(recent_rate)
 save_tsv(recent_rate, "q_sampling_discovery_rate")
 
+################################################################
+cat("\n================================================================\n")
+cat("DISCOVERY CURVES BY CLASSIFICATION AND TAXONOMIC CLASS\n")
+cat("================================================================\n")
+
+# Q: Cumulative species discovery by ecological classification
+cat("\n--- Q: Cumulative discovery by ecological classification ---\n")
+accum_all_clf <- census_long_ref |>
+    filter(!is.na(Year), !grepl("\\bsp\\.$", Species)) |>
+    distinct(Species, Year) |>
+    group_by(Species) |>
+    slice_min(Year, n = 1, with_ties = FALSE) |>
+    ungroup() |>
+    count(Year, name = "n_new") |>
+    arrange(Year) |>
+    mutate(cumulative = cumsum(n_new), Classification = "All species")
+
+accum_endemic_clf <- census_long_ref |>
+    filter(!is.na(Year), !grepl("\\bsp\\.$", Species)) |>
+    left_join(species |> select(Species_Full_Name, Distribution),
+              by = c("Species" = "Species_Full_Name")) |>
+    filter(Distribution == "Endemic to Greece") |>
+    distinct(Species, Year) |>
+    group_by(Species) |>
+    slice_min(Year, n = 1, with_ties = FALSE) |>
+    ungroup() |>
+    count(Year, name = "n_new") |>
+    arrange(Year) |>
+    mutate(cumulative = cumsum(n_new), Classification = "Endemic to Greece")
+
+accum_troglo_clf <- census_long_ref |>
+    filter(!is.na(Year), !grepl("\\bsp\\.$", Species)) |>
+    left_join(species |> select(Species_Full_Name, Classification),
+              by = c("Species" = "Species_Full_Name")) |>
+    filter(Classification %in% c("Troglobiont", "Stygobiont")) |>
+    distinct(Species, Year) |>
+    group_by(Species) |>
+    slice_min(Year, n = 1, with_ties = FALSE) |>
+    ungroup() |>
+    count(Year, name = "n_new") |>
+    arrange(Year) |>
+    mutate(cumulative = cumsum(n_new), Classification = "Troglobiont + Stygobiont")
+
+accum_trophile_clf <- census_long_ref |>
+    filter(!is.na(Year), !grepl("\\bsp\\.$", Species)) |>
+    left_join(species |> select(Species_Full_Name, Classification),
+              by = c("Species" = "Species_Full_Name")) |>
+    filter(Classification %in% c("Troglophile", "Stygophile")) |>
+    distinct(Species, Year) |>
+    group_by(Species) |>
+    slice_min(Year, n = 1, with_ties = FALSE) |>
+    ungroup() |>
+    count(Year, name = "n_new") |>
+    arrange(Year) |>
+    mutate(cumulative = cumsum(n_new), Classification = "Troglophile + Stygophile")
+
+accum_clf <- bind_rows(accum_all_clf, accum_endemic_clf,
+                        accum_troglo_clf, accum_trophile_clf)
+save_tsv(accum_clf |> select(Year, cumulative, Classification),
+         "q_species_accumulation_by_classification")
+
+p <- ggplot(accum_clf, aes(x = Year, y = cumulative, colour = Classification)) +
+    geom_line(linewidth = 1) +
+    scale_colour_manual(values = c(
+        "All species"              = "#4393c3",
+        "Endemic to Greece"        = "#d6604d",
+        "Troglobiont + Stygobiont" = "#4daf4a",
+        "Troglophile + Stygophile" = "#e6ab02"
+    )) +
+    scale_x_continuous(breaks = seq(1860, 2030, 20), limits = c(1860, 2030),
+                       expand = expansion(mult = c(0.01, 0.01))) +
+    scale_y_continuous(expand = expansion(mult = c(0.01, 0.05))) +
+    labs(title    = "Cumulative species discovery by ecological classification",
+         x = "Year", y = "Cumulative number of species", colour = NULL) +
+    theme_cfg() +
+    theme(legend.position = "bottom")
+save_plot(p, "q_species_accumulation_by_classification", w = 22, h = 13)
+
+# Q: Cumulative discovery for key taxonomic classes
+cat("\n--- Q: Cumulative species discovery by taxonomic class ---\n")
+accum_taxclass <- census_long_ref |>
+    filter(!is.na(Year), !grepl("\\bsp\\.$", Species)) |>
+    left_join(species |> select(Species_Full_Name, Class),
+              by = c("Species" = "Species_Full_Name")) |>
+    filter(Class %in% c("Insecta", "Arachnida", "Malacostraca", "Mammalia")) |>
+    distinct(Species, Class, Year) |>
+    group_by(Species) |>
+    slice_min(Year, n = 1, with_ties = FALSE) |>
+    ungroup() |>
+    count(Class, Year, name = "n_new") |>
+    arrange(Class, Year) |>
+    group_by(Class) |>
+    mutate(cumulative = cumsum(n_new)) |>
+    ungroup()
+save_tsv(accum_taxclass, "q_species_accumulation_by_taxclass")
+
+p <- ggplot(accum_taxclass,
+            aes(x = Year, y = cumulative, colour = Class)) +
+    geom_line(linewidth = 1) +
+    scale_x_continuous(breaks = seq(1860, 2030, 20), limits = c(1860, 2030)) +
+    scale_y_continuous(expand = expansion(mult = c(0.01, 0.05))) +
+    scale_colour_brewer(palette = "Set1") +
+    labs(title  = "Cumulative species discovery by taxonomic class",
+         x = "Year", y = "Cumulative number of species", colour = NULL) +
+    theme_cfg() +
+    theme(legend.position = "bottom")
+save_plot(p, "q_species_accumulation_by_taxclass", w = 20, h = 12)
+
 cat("\n================================================================\n")
 cat("DONE — results/ and plots/ updated\n")
 cat("================================================================\n")

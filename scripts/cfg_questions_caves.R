@@ -431,6 +431,53 @@ p <- ggplot(caves_geology_summary,
     theme_cfg()
 save_plot(p, "q_caves_geology_substrate", w = 18, h = 10)
 
+################################################################
+cat("\n================================================================\n")
+cat("BETA DIVERSITY — TROGLOBIONT SPECIES BETWEEN REGIONS\n")
+cat("================================================================\n")
+
+# Q: Troglobiont beta diversity between regions (Jaccard dissimilarity)
+cat("\n--- Q: Troglobiont species turnover between regions (Jaccard) ---\n")
+library(vegan)
+
+troglo_spp <- species |>
+    filter(Classification == "Troglobiont") |>
+    pull(Species_Full_Name)
+
+region_spp_mat <- census_all_species_all_caves |>
+    filter(!grepl("\\bsp\\.$", Species),
+           Species %in% troglo_spp,
+           !is.na(Region)) |>
+    distinct(Region, Species) |>
+    mutate(presence = 1L) |>
+    pivot_wider(names_from = Species, values_from = presence, values_fill = 0L)
+
+regions_vec <- region_spp_mat$Region
+mat <- as.matrix(region_spp_mat |> select(-Region))
+rownames(mat) <- regions_vec
+
+jacc_dist <- vegan::vegdist(mat, method = "jaccard", binary = TRUE)
+jacc_mat  <- as.matrix(jacc_dist)
+
+jacc_df <- as.data.frame(jacc_mat) |>
+    tibble::rownames_to_column("region1") |>
+    pivot_longer(-region1, names_to = "region2", values_to = "jaccard_dist")
+save_tsv(jacc_df, "q_caves_troglo_beta_diversity")
+
+p <- ggplot(jacc_df, aes(x = region1, y = region2, fill = jaccard_dist)) +
+    geom_tile() +
+    scale_fill_gradient2(low = "#2166ac", mid = "#f7f7f7", high = "#d73027",
+                         midpoint = 0.5, limits = c(0, 1),
+                         name = "Jaccard\ndissimilarity") +
+    scale_x_discrete(guide = guide_axis(angle = 45)) +
+    labs(title    = "Troglobiont species turnover between regions",
+         subtitle = "Jaccard dissimilarity (1 = no shared species)",
+         x = NULL, y = NULL) +
+    coord_fixed() +
+    theme_cfg() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+save_plot(p, "q_caves_troglo_beta_diversity", w = 20, h = 18)
+
 cat("\n================================================================\n")
 cat("DONE — results/ and plots/ updated\n")
 cat("================================================================\n")
