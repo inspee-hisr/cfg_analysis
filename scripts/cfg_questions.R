@@ -242,6 +242,12 @@ cat("================================================================\n")
 cat("\n--- Q: How many species? ---\n")
 cat("Total species in database:", nrow(species), "\n")
 cat("Distinct species in census:", length(unique(census$Species)), "\n")
+save_tsv(
+    tibble(metric = c("Total species", "Orders", "Families", "Genera"),
+           count  = c(nrow(species), n_distinct(species$Order),
+                      n_distinct(species$Family), n_distinct(species$Genus))),
+    "q_species_inventory"
+)
 
 # Q2: Species with most occurrences (= most distinct caves)
 cat("\n--- Q: Which species has the most occurrences (caves)? ---\n")
@@ -508,6 +514,14 @@ p <- ggplot(only_n2000_clf,
           strip.text   = element_text(face = "bold"))
 save_plot(p, "q_species_only_natura2000", w = 22, h = 12)
 
+# Q9b: Troglobiont species only known from Natura2000 caves
+cat("\n--- Q: Troglobiont species only in Natura2000 caves? ---\n")
+troglo_only_n2000 <- species_only_n2000 |>
+    filter(Classification == "Troglobiont")
+cat("Troglobiont species found exclusively in Natura2000 caves:", nrow(troglo_only_n2000), "\n")
+print(troglo_only_n2000 |> select(Species, Order, n_caves, Distribution))
+save_tsv(troglo_only_n2000, "q_species_troglo_only_natura2000")
+
 
 ################################################################
 cat("\n================================================================\n")
@@ -617,6 +631,9 @@ p_accum <- ggplot(bind_rows(accum_all, accum_endemic),
     theme(legend.position = c(0.18, 0.85),
           axis.text.x = element_text(angle = 45, hjust = 1))
 save_plot(p_accum, "q_references_accumulation_curve", w = 26, h = 15)
+save_tsv(bind_rows(accum_all, accum_endemic) |>
+             select(Year, cumulative, type),
+         "q_references_accumulation_curve")
 
 cat("\n================================================================\n")
 cat("DONE — results saved to results/ and plots saved to plots/\n")

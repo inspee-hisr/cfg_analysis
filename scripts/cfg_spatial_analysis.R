@@ -174,53 +174,59 @@ write_delim(census_araneae_long, "results/cfg_araneae_data_long.tsv",delim="\t")
 
 
 ################################## islands #############################
-###
-# Explode multipolygons into individual polygons
+# Keep municipalities as MULTIPOLYGON — st_cast("POLYGON", do_split=TRUE) on
+# an sf object only takes the FIRST part of each MULTIPOLYGON (warns "polygon
+# from first part only"), which truncates large islands like Lesbos and Rhodes
+# to their smallest satellite islet.  Connectivity and area checks work
+# correctly on MULTIPOLYGON geometries, so no explosion is needed.
+
 gadm_single <- greece_municipalities |>
     st_make_valid() |>
-    st_cast("POLYGON", do_split = TRUE) |>
-    mutate(id = row_number())  # Add unique IDs to track original geometries
-# Check connectivity of polygons
+    mutate(id          = row_number(),
+           area_island = round(set_units(st_area(geometry), km^2), 4))
 
-#connectivity <- st_relate(gadm_single, gadm_single, pattern = "****0****")
 connectivity <- st_intersects(gadm_single, gadm_single)
-
-# Determine islands (features with no neighbors are islands)
 gadm_single$is_island <- sapply(connectivity, function(x) length(x) == 1)
 
 greece_islands <- gadm_single |>
-  mutate(is_island= ifelse(NAME_2 %in% c("North Aegean","Crete","South Aegean","Ionian Islands"),TRUE,is_island)) |>
-  mutate(region_type = ifelse(is_island, "Island", "Mainland")) |>
-  dplyr::select(is_island,region_type,NAME_2, NAME_3,id) |>
-  mutate(area_island=round(set_units(st_area(geometry),km^2),4)) 
+    mutate(is_island = ifelse(NAME_2 %in% c("North Aegean","Crete","South Aegean","Ionian Islands"),
+                              TRUE, is_island)) |>
+    mutate(region_type = ifelse(is_island, "Island", "Mainland")) |>
+    dplyr::select(is_island, region_type, NAME_2, NAME_3, id, area_island)
 
-# Crete and Evia ara the only islands in greece that has multiple municipalities
-# so the mainland of Crete is filtered to join all municipalities
-# and keep satelite islands separate.
+# Crete: union all main-island municipalities (area > 100 km²) into one polygon.
+# Gavdos (≈ 35 km²) is correctly excluded and kept as a separate island feature.
 crete_only <- greece_islands |>
-    filter(NAME_2=="Crete") |>
+    filter(NAME_2 == "Crete") |>
     arrange(desc(area_island)) |>
-    filter(area_island>set_units(100,km^2))
+    filter(area_island > set_units(100, km^2))
 
 crete_only_one <- st_union(crete_only) |>
     sf::st_as_sf() |>
-    rename("geometry"="x") |>
-    mutate(is_island=TRUE, region_type="Island", NAME_2="Crete", NAME_3="All Crete", id=0) |> 
-    mutate(area_island=round(set_units(st_area(geometry),km^2),4)) 
+    rename("geometry" = "x") |>
+    mutate(is_island = TRUE, region_type = "Island",
+           NAME_2 = "Crete", NAME_3 = "All Crete", id = 0L) |>
+    mutate(area_island = round(set_units(st_area(geometry), km^2), 4))
 
-# Evia
-evia <- greece_regions |> filter(NAME_2=="Central Greece") |>
-    st_make_valid() |>
-    st_cast("POLYGON", do_split = TRUE) |>
-    mutate(id = row_number()) |> 
-    mutate(area_island=round(set_units(st_area(geometry),km^2),4)) |>
-    filter(area_island>set_units(1000,km^2)) |>
-    filter(area_island<set_units(4000,km^2)) |>
-    dplyr::select(area_island) |>
-    mutate(is_island=TRUE, region_type="Island", NAME_2="Central Greece", NAME_3="Evia", id=1000) 
+# Evia: cast the individual sfc geometry (not the sf data frame) so the
+# MULTIPOLYGON is properly split into its constituent polygons.  The mainland
+# polygon of Central Greece is ≈ 11 600 km²; Evia is ≈ 3 676 km².
+cg_sfc   <- st_cast(st_geometry(greece_regions |>
+                                    filter(NAME_2 == "Central Greece") |>
+                                    st_make_valid()), "POLYGON")
+cg_areas <- set_units(st_area(cg_sfc), km^2)
+evia_idx <- which(cg_areas > set_units(1000, km^2) & cg_areas < set_units(4000, km^2))
+evia <- st_sf(
+    geometry    = st_sfc(cg_sfc[[evia_idx]], crs = 3035),
+    is_island   = TRUE,
+    region_type = "Island",
+    NAME_2      = "Central Greece",
+    NAME_3      = "Evia",
+    id          = 1000L,
+    area_island = round(cg_areas[evia_idx], 4)
+)
 
-# first the crete mainland polygons are excluded and then the whole crete is
-# binded to the other
+# Remove individual Crete municipality polygons, add merged Crete + Evia
 greece_islands_final <- greece_islands |>
     filter(!(id %in% crete_only$id)) |>
     bind_rows(crete_only_one) |>
@@ -269,8 +275,20 @@ caves_island_summary <- all_species_islands |>
     group_by(Cave_ID, NAME_2, NAME_3, region_type, is_island) |>
     summarise(n_species = n_distinct(Species), .groups = "drop")
 
+# Island areas (km²) for SAR analysis in cfg_questions_islands.R
+island_areas <- greece_islands_final |>
+    sf::st_drop_geometry() |>
+    dplyr::select(NAME_2, NAME_3, area_island) |>
+    dplyr::group_by(NAME_2, NAME_3) |>
+    dplyr::summarise(area_island_km2 = sum(as.numeric(area_island), na.rm = TRUE),
+                     .groups = "drop")
+
+caves_island_summary <- caves_island_summary |>
+    left_join(island_areas, by = c("NAME_2", "NAME_3"))
+
 write_delim(all_species_islands,      "results/cfg_island_species.tsv",      delim = "\t")
 write_delim(species_island_mainland,  "results/cfg_species_distribution.tsv", delim = "\t")
 write_delim(caves_island_summary,     "results/cfg_caves_island_summary.tsv", delim = "\t")
+write_delim(island_areas,             "results/cfg_island_areas.tsv",         delim = "\t")
 
 
