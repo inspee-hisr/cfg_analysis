@@ -1,64 +1,18 @@
 #!/usr/bin/env Rscript
 
-# Data manipulation packages
 library(gridExtra)
 library(grid)
 library(tidyverse)
 library(kableExtra)
-## Data for species
-
 library(rredlist)
 library(taxize)
-#library(rgbif)
-#library(ISOcodes)
-#library(spocc)
-
-# Spatial analysis packages
-
 library(RColorBrewer)
-#library(ggmap)
-library(rgdal)
-#library(geosphere)
-#library(GISTools)
-#library(leaflet)
-#library(rgeos)
-#library(maptools)
 library(sf)
-#library(Rcpp)
-library(raster) ##Load the Raster Library
-
-# Species statistics
-
-#library(red)
+library(terra)
 library(vegan)
 library(ggdendro)
 
-data_files <- list.files(path = "data")
- 
-# Data import from Database Export, the files are choosen automatically based on their name. The folder Data must contain only the latest data files.
-Cave_References <- read_delim(file = paste0("data/",grep("Cave_References",data_files,value = TRUE)),delim = "\t")
- 
-caves <- read_delim(file = paste0("data/",grep("Caves",data_files,value = TRUE)),delim = "\t")
-caves$Longitude <- as.numeric(caves$Longitude)
-caves$Latitude <- as.numeric(caves$Latitude)
-
-census <- read_delim(file = paste0("data/",grep("Census_\\d",data_files,value = TRUE)),delim = "\t")
- 
-Census_references <- read_delim(file = paste0("data/",grep("Census_references",data_files,value = TRUE)),delim = "\t")
- 
-species <- read_delim(file = paste0("data/",grep("Species_",data_files,value = TRUE)),delim = "\t") %>% mutate(Classification=gsub(pattern="\\?",replacement = "",x = Classification))# Data import from Database Export
-
-
-census$species_epithet <- as.character(lapply(strsplit(as.character(census$Species), split=" "), "[", n=2))
-
-census_all_species <- census %>% left_join(species,by=c("Species"="Species_Full_Name"))
-
-census_all_species_all_caves <- census_all_species %>% dplyr::select(-Cave_Name) %>% left_join(caves, by=c("Cave_ID"="Cave_ID"))
-
-census_long_str_man <- strsplit(x = census_all_species$Reference_Short,split = "|",fixed=TRUE)
-census_long_str_man_id <- strsplit(x = census_all_species$Reference_ID,split = "|",fixed=TRUE)
-
-census_long_man <- data_frame(ReferenceShort=unlist(census_long_str_man),reference_id=unlist(census_long_str_man_id),CaveName=rep.int(census_all_species$Cave_Name,times = sapply(census_long_str_man,length)),Cave_ID=rep.int(census_all_species$Cave_ID,times = sapply(census_long_str_man,length)),Census_id=rep.int(census_all_species$Census_ID,times = sapply(census_long_str_man,length)),Species=rep.int(census_all_species$Species,times = sapply(census_long_str_man,length))) %>% group_by(ReferenceShort,Cave_ID,CaveName,Species,Census_id) %>% summarise(n=n()) %>% ungroup() %>% mutate(Species=trimws(Species,"r"))
+source("scripts/cfg_load_data.R")
 
 ## Regions
 
@@ -84,7 +38,7 @@ species_Region <- census_all_species_all_caves %>% filter(species_epithet!="sp."
 
 species_troglobiont_Region <- census_all_species_all_caves %>% filter(species_epithet!="sp.") %>% dplyr::select(Species,Region, Classification) %>% distinct() %>% filter(Classification=="Troglobiont") %>% group_by(Region) %>% summarise(number_of_troglobiont_species=n()) %>% na.omit()
 
-caves_species_region <- species_Region %>% left_join(caves_Region, by=c("Region"="Region")) %>% left_join(species_region_endemic, by=c("Region"="Region")) %>% left_join(species_troglobiont_Region, by=c("Region"="Region")) %>% gather(key = Variable,value = number,-Region,-color_manual) %>% replace(is.na(.),0)
+caves_species_region <- species_Region %>% left_join(caves_Region, by=c("Region"="Region")) %>% left_join(species_region_endemic, by=c("Region"="Region")) %>% left_join(species_troglobiont_Region, by=c("Region"="Region")) %>% pivot_longer(-c(Region,color_manual), names_to="Variable", values_to="number") %>% replace(is.na(.),0)
 
 caves_species_region$Variable <- factor(caves_species_region$Variable, levels = c("number_of_caves","number_of_species","number_of_endemic_species","number_of_troglobiont_species"))
 
@@ -156,7 +110,7 @@ TOTAL <- as_tibble(matrix(c(NA,NA,NA,NA,NA,"TOTAL",length(unique(species$Order))
 
 database_taxonomic_summary <- database_taxonomic_summary[-1,] %>% rbind(.,TOTAL)
 
-write_delim(database_taxonomic_summary,delim = "\t",col_names = T,path = "database_taxonomic_summary.tsv",na = " ")
+write_delim(database_taxonomic_summary,delim = "\t",col_names = T,file = "database_taxonomic_summary.tsv",na = " ")
 
 database_taxonomic_summary[is.na(database_taxonomic_summary)] <- " " # replace NA with space
 
@@ -385,7 +339,7 @@ ggsave("species_per_altitude_class.jpeg", plot = last_plot(), device = "jpeg", d
 
 # Red Lists
 ## IUCN status
-iucn_species <- species %>% group_by(IUCN_Red_List) %>% summarise(number_of_species=n()) %>% mutate(frequency=round(number_of_species/sum(number_of_species),digits = 3)) %>% mutate(Red_List="IUCN Red List") %>% dplyr::rename(., Categories=IUCN_Red_List) %>% rbind(.,data_frame(Categories="EN - Endangered",number_of_species=0,frequency=0,Red_List="IUCN Red List"))
+iucn_species <- species %>% group_by(IUCN_Red_List) %>% summarise(number_of_species=n()) %>% mutate(frequency=round(number_of_species/sum(number_of_species),digits = 3)) %>% mutate(Red_List="IUCN Red List") %>% dplyr::rename(., Categories=IUCN_Red_List) %>% rbind(.,tibble(Categories="EN - Endangered",number_of_species=0,frequency=0,Red_List="IUCN Red List"))
 
 kable(iucn_species)
 
@@ -422,7 +376,7 @@ ggsave("IUCN_Red_List_pie.jpeg", plot = last_plot(), device = "jpeg", dpi = 300,
 
 
 ### IUCN and ecological classification
-iucn_species_classification <- species %>% group_by(IUCN_Red_List, Classification) %>% summarise(number_of_species=n()) %>% mutate(frequency=round(number_of_species/sum(number_of_species),digits = 3)) %>% mutate(Red_List="IUCN Red List") %>% dplyr::rename(., Categories=IUCN_Red_List) #%>% rbind(.,data_frame(Categories="EN - Endangered",number_of_species=0,frequency=0,Red_List="IUCN Red List"))
+iucn_species_classification <- species %>% group_by(IUCN_Red_List, Classification) %>% summarise(number_of_species=n()) %>% mutate(frequency=round(number_of_species/sum(number_of_species),digits = 3)) %>% mutate(Red_List="IUCN Red List") %>% dplyr::rename(., Categories=IUCN_Red_List) #%>% rbind(.,tibble(Categories="EN - Endangered",number_of_species=0,frequency=0,Red_List="IUCN Red List"))
 
 ggplot()+
   geom_col(data = iucn_species_classification, aes(x=Categories, y= number_of_species, fill=Classification),show.legend = T)+
@@ -518,8 +472,8 @@ ggsave("red_lists_data_species.png", plot = red_lists_data_species_plot, device 
 
 caves_protection <- strsplit(x = caves$Protection_Status,split = "|",fixed=TRUE)
 
-caves_protection_data <- data_frame(Caves_Protection=unlist(caves_protection),CaveName=rep.int(caves$Cave_Name,times = sapply(caves_protection,length)),Cave_ID=rep.int(caves$Cave_ID,times = sapply(caves_protection,length)),Region=rep.int(caves$Region,times = sapply(caves_protection,length)),Altitude=rep.int(caves$Altitude,times = sapply(caves_protection,length))) %>% 
-mutate(Protection_Type_ab=substr(x = Caves_Protection,start = 1,stop = 1)) %>% group_by(Protection_Type_ab) %>% left_join(.,data_frame(ab=c("G","K",NA,"H","A","L"),Protection_Type=c("Natura2000","Wildlife Refuge","Not Protected","Historical Monument","Archaeological Site","Landscape of Outstanding Natural Beauty")),by=c("Protection_Type_ab"="ab")) %>% dplyr::select(-Protection_Type_ab)
+caves_protection_data <- tibble(Caves_Protection=unlist(caves_protection),CaveName=rep.int(caves$Cave_Name,times = sapply(caves_protection,length)),Cave_ID=rep.int(caves$Cave_ID,times = sapply(caves_protection,length)),Region=rep.int(caves$Region,times = sapply(caves_protection,length)),Altitude=rep.int(caves$Altitude,times = sapply(caves_protection,length))) %>% 
+mutate(Protection_Type_ab=substr(x = Caves_Protection,start = 1,stop = 1)) %>% group_by(Protection_Type_ab) %>% left_join(.,tibble(ab=c("G","K",NA,"H","A","L"),Protection_Type=c("Natura2000","Wildlife Refuge","Not Protected","Historical Monument","Archaeological Site","Landscape of Outstanding Natural Beauty")),by=c("Protection_Type_ab"="ab")) %>% dplyr::select(-Protection_Type_ab)
 
 caves_protection_data_summary_type <- caves_protection_data %>% group_by(Protection_Type) %>% summarise(number_of_caves=n()) %>% mutate(frequency=round(number_of_caves/sum(number_of_caves),digits = 3))
 
@@ -553,7 +507,7 @@ ggsave("caves_protection_data_type_frequency.jpeg", plot = last_plot(), device =
 # Protection status species
 species_protection <- strsplit(x = species$Protection_Status,split = "|",fixed=TRUE)
 
-species_protection_data <- data_frame(Species_Protection=unlist(species_protection),Species=rep.int(species$Species_Full_Name,times = sapply(species_protection,length)),Class=rep.int(species$Class,times = sapply(species_protection,length)),Classification=rep.int(species$Classification,times = sapply(species_protection,length)))
+species_protection_data <- tibble(Species_Protection=unlist(species_protection),Species=rep.int(species$Species_Full_Name,times = sapply(species_protection,length)),Class=rep.int(species$Class,times = sapply(species_protection,length)),Classification=rep.int(species$Classification,times = sapply(species_protection,length)))
 
 species_protection_data_summary <- species_protection_data %>% group_by(Species_Protection) %>% summarise(number_of_species=n())
 
@@ -572,7 +526,7 @@ species_protection_data_summary <- species_protection_data %>% group_by(Species_
 kable(x = species_protection_data_summary)
 
 
-species_protection_data_classification <- species_protection_data %>% mutate(Protection_Status=if_else(is.na(Species_Protection)==TRUE,"Not protected","Protected")) %>% distinct(Classification,Protection_Status,Species) %>% group_by(Classification,Protection_Status) %>% summarise(number_of_species=n()) %>% ungroup() %>% spread(key = Protection_Status,value = number_of_species,fill=0) %>% gather(key =Protection_Status,value =number_of_species,  -Classification)
+species_protection_data_classification <- species_protection_data %>% mutate(Protection_Status=if_else(is.na(Species_Protection)==TRUE,"Not protected","Protected")) %>% distinct(Classification,Protection_Status,Species) %>% group_by(Classification,Protection_Status) %>% summarise(number_of_species=n()) %>% ungroup() %>% pivot_wider(names_from=Protection_Status,values_from=number_of_species,values_fill=0) %>% pivot_longer(-Classification, names_to="Protection_Status", values_to="number_of_species")
 
 species_protection_data_classification$Classification <- factor(species_protection_data_classification$Classification,levels = c("Accidental","Trogloxene","Stygoxene","Stygophile","Troglophile","Stygobiont","Troglobiont"))
 
@@ -588,7 +542,7 @@ species_protection_data_classification_plot <- ggplot()+
 ggsave("species_protection_data_classification.png", plot = species_protection_data_classification_plot, device = "png",width = 20,height = 11.25,units = "in", dpi = 100,path = "Website_plots/")
 
 
-species_protection_data_classification %>% spread(key = Protection_Status,value = number_of_species,fill=0) %>% kable()
+species_protection_data_classification %>% pivot_wider(names_from=Protection_Status,values_from=number_of_species,values_fill=0) %>% kable()
 
 # Species per cave
 
@@ -967,7 +921,7 @@ ggsave("distributions_species_taxon.jpeg", plot = distributions_species_taxon, d
 
 species_links <- species %>% dplyr::select(Link_IUCN,Link_GBIF,Link_Fauna_Europaea,Link_NCBI,Link_PESI)
 
-species_links_summary <- data_frame(Source=c("Fauna Europaea","NCBI Taxonomy","GBIF","PESI","IUCN", "Total Species"), Number_of_links=c(sum(!is.na(species_links$Link_Fauna_Europaea)),sum(!is.na(species_links$Link_NCBI)),sum(!is.na(species_links$Link_GBIF)),sum(!is.na(species_links$Link_PESI)),sum(!is.na(species_links$Link_IUCN)), nrow(species_links)), Missing_links=c(nrow(species)-sum(!is.na(species_links$Link_Fauna_Europaea)),nrow(species)-sum(!is.na(species_links$Link_NCBI)),nrow(species)-sum(!is.na(species_links$Link_GBIF)),nrow(species)-sum(!is.na(species_links$Link_PESI)),nrow(species)-sum(!is.na(species_links$Link_IUCN)),nrow(species_links)-nrow(species_links))) %>% mutate(frequency=round(Number_of_links/nrow(species),digits = 3))
+species_links_summary <- tibble(Source=c("Fauna Europaea","NCBI Taxonomy","GBIF","PESI","IUCN", "Total Species"), Number_of_links=c(sum(!is.na(species_links$Link_Fauna_Europaea)),sum(!is.na(species_links$Link_NCBI)),sum(!is.na(species_links$Link_GBIF)),sum(!is.na(species_links$Link_PESI)),sum(!is.na(species_links$Link_IUCN)), nrow(species_links)), Missing_links=c(nrow(species)-sum(!is.na(species_links$Link_Fauna_Europaea)),nrow(species)-sum(!is.na(species_links$Link_NCBI)),nrow(species)-sum(!is.na(species_links$Link_GBIF)),nrow(species)-sum(!is.na(species_links$Link_PESI)),nrow(species)-sum(!is.na(species_links$Link_IUCN)),nrow(species_links)-nrow(species_links))) %>% mutate(frequency=round(Number_of_links/nrow(species),digits = 3))
 
 
 kable(species_links_summary)
@@ -1214,13 +1168,13 @@ species_occurencies_unique_caves_without <- caves[which((is.na(caves$Latitude)))
 # Municipalities shape file
 
 
-municipalities_shape_file_original <- st_read("Shapefiles/municipalities_shape_file/municipalities_Kallikratis_plan_Greece.shp")
+municipalities_shape_file_original <- st_read("spatial_data/municipalities_shape_file/municipalities_Kallikratis_plan_Greece.shp")
 
 municipalities_shape_file <- municipalities_shape_file_original %>% st_transform("+proj=longlat +datum=GGRS87 +no_defs")
 
 #proj4string(municipalities_shape_file) <- CRS("+proj=longlat +datum=WGS84")# CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs")  # this is WGS84
 
-municipalities_greece_long_names_eng <- readxl::read_xlsx("Shapefiles/municipalities_shape_file/names_municipalities_gr_eng.xlsx",col_names = T)
+municipalities_greece_long_names_eng <- readxl::read_xlsx("spatial_data/municipalities_shape_file/names_municipalities_gr_eng.xlsx",col_names = T)
 municipalities_greece_long_names_eng$KWD_YPES <- as.character(municipalities_greece_long_names_eng$KWD_YPES)
 
 municipalities_shape_file <- municipalities_shape_file %>% left_join(., municipalities_greece_long_names_eng, by=c("KWD_YPES"="KWD_YPES"))
@@ -1260,28 +1214,27 @@ capwords <- function(s, strict = FALSE) {
 
 # All new Natura
 
-natura2000_new_shapefile_v30  <- rgdal::readOGR("Shapefiles/GR_Natura2000_v30/gr_natura_v30.shp",verbose = T) #,p4s = "+proj=tmerc +lat_0=0 +lon_0=24 +k=0.9996 +x_0=500000 +y_0=0 +datum=GGRS87 +units=m +no_defs"
-#,p4s = "+proj=longlat +datum=WGS84 +ellps=GRS80 +units=m +no_defs"
-natura2000_new_shapefile_v30_wgs84 <- spTransform(natura2000_new_shapefile_v30, CRS("+proj=longlat +datum=WGS84")) #+proj=longlat +datum=GGRS87 +no_defs
+natura2000_new_shapefile_v30  <- sf::st_read("spatial_data/GR_Natura2000_v30/gr_natura_v30.shp")
+natura2000_new_shapefile_v30_wgs84 <- sf::st_transform(natura2000_new_shapefile_v30, crs = "WGS84")
 
 names_natura2000_new_shapefile_v30 <- natura2000_new_shapefile_v30 %>% mutate(id=as.character(seq(from=0,to=(nrow(.)-1))))
 
-natura2000_new_shapefile_v30_dataframe <- broom::tidy(natura2000_new_shapefile_v30_wgs84) %>% left_join(., names_natura2000_new_shapefile_v30, by=c("id"="id"))
+natura2000_new_shapefile_v30_dataframe <- names_natura2000_new_shapefile_v30
 
-over_natura_NEW_v30 <- over( x = Caves_Database_kml_to_txt_shapefile_wgs84 , y = natura2000_new_shapefile_v30_wgs84 , returnList = T) # This is from rgeos, it contains multiple matches, thats why returnList=T. VERY Important
+over_natura_NEW_v30 <- sf::st_join(Caves_Database_kml_to_txt_shapefile_wgs84, natura2000_new_shapefile_v30_wgs84, join = sf::st_intersects)
 
-over_natura_NEW_v30_d <-Caves_Database_kml_to_txt %>% left_join(bind_rows(over_natura_NEW_v30,.id = "ID"),by=c("ID"="ID"))
+over_natura_NEW_v30_d <- over_natura_NEW_v30
 
 ## Only the new parts
-natura2000_NEW_shapefile <- sf::st_read("Shapefiles/Natura2000_2017_NEW_shp/Kaloust/Nees_Natura.shp")
+natura2000_NEW_shapefile <- sf::st_read("spatial_data/Natura2000_2017_NEW_shp/Kaloust/Nees_Natura.shp")
 
-natura2000_NEW_shapefile_INFO <- sf::st_read(("Shapefiles/Natura2000_2017_NEW_shp/NEES_FINAL_V10.shp")
+natura2000_NEW_shapefile_INFO <- sf::st_read("spatial_data/Natura2000_2017_NEW_shp/NEES_FINAL_V10.shp")
 
 natura2000_NEW_shapefile_INFO_df <- natura2000_NEW_shapefile_INFO %>% mutate(id=as.character(seq(from=0,to=(nrow(.)-1))))
 
 natura2000_NEW_shapefile <-  natura2000_NEW_shapefile %>% mutate(id=as.character(seq(from=0,to=(nrow(.)-1)))) %>% left_join(natura2000_NEW_shapefile_INFO_df, by=c("id"="id")) %>% dplyr::select(-c(descriptio,timestamp,begin,end,altitudeMo,tessellate,extrude,visibility,drawOrder,icon))
 
-proj4string(natura2000_NEW_shapefile) <- CRS("+proj=longlat +datum=WGS84")# CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs") # this is WGS84
+natura2000_NEW_shapefile <- sf::st_set_crs(natura2000_NEW_shapefile, 4326)
 
 
 # shapefiles to dataframes for plotting
@@ -1291,9 +1244,9 @@ proj4string(natura2000_NEW_shapefile) <- CRS("+proj=longlat +datum=WGS84")# CRS(
 #natura2000_NEW_shapefile_dataframe <- broom::tidy(natura2000_NEW_shapefile) %>% left_join(., natura2000_NEW_shapefile_names, by=c("id"="id"))
 
 ##### Natura 2000
-natura2000shapefile <-  sf::st_read("Shapefiles/natura2000shapefile/natura2000shapefile.shp")
+natura2000shapefile <-  sf::st_read("spatial_data/natura2000shapefile/natura2000shapefile.shp")
 
-proj4string(natura2000shapefile) <- CRS("+proj=longlat +datum=WGS84") #CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs")  # this is WGS84
+natura2000shapefile <- sf::st_set_crs(natura2000shapefile, 4326)
 
 natura2000shapefile_data <- natura2000shapefile %>% dplyr::select(CODE,NAME_LATIN)
 ### Katafygia agrias zois
@@ -1314,13 +1267,13 @@ natura2000shapefile_dataframe <- natura2000shapefile %>% left_join(., names_natu
 
 
 ####
-katafygia_agrias_zwhs <-  sf::st_read("Shapefiles/KAZ_data/KAZ_data.shp")
+katafygia_agrias_zwhs <-  sf::st_read("spatial_data/KAZ_data/KAZ_data.shp")
 
-proj4string(katafygia_agrias_zwhs) <- CRS("+proj=longlat +datum=WGS84")# CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs")  # this is WGS84
+katafygia_agrias_zwhs <- sf::st_set_crs(katafygia_agrias_zwhs, 4326)
 
-KAZ_data_translated <- readxl::read_xlsx("Shapefiles/KAZ_data/KAZ_table_translated.xlsx",col_names = T)
+KAZ_data_translated <- readxl::read_xlsx("spatial_data/KAZ_data/KAZ_table_translated.xlsx",col_names = T)
 
-KAZ_data_KODE <- read_csv("Shapefiles/KAZ_data/KAZ_data.csv",col_names = T) %>% dplyr::select(-the_geom) %>% left_join(KAZ_data_translated, by=c("KODE"="KODE"))
+KAZ_data_KODE <- read_csv("spatial_data/KAZ_data/KAZ_data.csv",col_names = T) %>% dplyr::select(-the_geom) %>% left_join(KAZ_data_translated, by=c("KODE"="KODE"))
 
 ### katafygia_agrias_zwhs TIDY
 #katafygia_agrias_zwhs_names$id <- as.character(seq(from=0,to=(nrow(katafygia_agrias_zwhs_names)-1)))
@@ -1394,7 +1347,7 @@ caves_all_info <- caves %>% left_join(.,caves_all_shapefiles, by=c("Cave_ID"="Ca
 
 caves_protection <- strsplit(x = caves$Protection_Status,split = "|",fixed=TRUE)
 
-caves_protection_data <- data_frame(Caves_Protection=unlist(caves_protection),CaveName=rep.int(caves$Cave_Name,times = sapply(caves_protection,length)),Cave_ID=rep.int(caves$Cave_ID,times = sapply(caves_protection,length)),Region=rep.int(caves$Region,times = sapply(caves_protection,length)),Altitude=rep.int(caves$Altitude,times = sapply(caves_protection,length))) %>% mutate(Protection_Type=if_else(is.na(Caves_Protection),"Not protected", if_else(grepl("^G.",x = Caves_Protection),"Natura2000","Wildlife Refuge"))) %>% mutate(Caves_Protection_Code=gsub(" - .*","",Caves_Protection))
+caves_protection_data <- tibble(Caves_Protection=unlist(caves_protection),CaveName=rep.int(caves$Cave_Name,times = sapply(caves_protection,length)),Cave_ID=rep.int(caves$Cave_ID,times = sapply(caves_protection,length)),Region=rep.int(caves$Region,times = sapply(caves_protection,length)),Altitude=rep.int(caves$Altitude,times = sapply(caves_protection,length))) %>% mutate(Protection_Type=if_else(is.na(Caves_Protection),"Not protected", if_else(grepl("^G.",x = Caves_Protection),"Natura2000","Wildlife Refuge"))) %>% mutate(Caves_Protection_Code=gsub(" - .*","",Caves_Protection))
 
 caves_protection_data_natura <- caves_protection_data %>% filter(Protection_Type=="Natura2000") %>% left_join(names_natura2000shapefile, by=c("Caves_Protection_Code"="CODE")) %>% dplyr::select(Cave_ID,Region,Caves_Protection_Code,Caves_Protection, NAME_LATIN_lower_letters,SITETYPE_NATURA) %>% mutate(Law= gsub(".*Law *(.*?) *<a.*","Law \\1",Caves_Protection),Link=paste0(' <a href="http://natura2000.eea.europa.eu/Natura2000/SDF.aspx?site=',Caves_Protection_Code,'" target="_blank"> Check site’s Standard Data Form</a>'))
 
@@ -1422,9 +1375,9 @@ ggsave("caves_per_altitude.png", plot = last_plot(), device = "png",width = 20,h
 
 
 #' ## Species and caves per region
-greece_level_2_shape <-getData('GADM', country='GRC', level=2)  ##Get the Province Shapefile for France
+greece_level_2_shape <- sf::st_read("spatial_data/gadm41_GRC_shp/gadm41_GRC_2.shp")
 
-greece_level_2 <- spTransform(greece_level_2_shape, CRS("+proj=longlat +datum=WGS84"))
+greece_level_2 <- sf::st_transform(greece_level_2_shape, crs = "WGS84")
 
 greece_regions <- c("Athos","East Macedonia and Thrace","Attica ","West Greece","West Macedonia","Ionian Islands ","Epirus ","Central Macedonia","Crete","South Aegean","Peloponnese ","Central Greece ","Thessaly","North Aegean")
 
@@ -1439,34 +1392,24 @@ species_Region$regions <- greece_regions
 
 # https://www.r-bloggers.com/using-r-working-with-geospatial-data-and-ggplot2/
 
-greece_level_2$id <- rownames(greece_level_2)
+greece_level_2 <- sf::st_transform(greece_level_2, crs = "WGS84")
 
-greece_level_2 <- spTransform(greece_level_2, CRS("+proj=longlat +datum=WGS84"))
-
-greece_level_2_fortify <- broom::tidy(greece_level_2)
-#greece_level_2_fortify <- fortify(greece_level_2, region = "id")
-
-greece_level_2_dataframe <- merge(greece_level_2_fortify, greece_level_2, by = "id")
-
-greece_level_2_dataframe <- greece_level_2_dataframe %>% left_join(., caves_Region, by=c("NAME_2"="regions")) %>% dplyr::select(-Region) %>% left_join(., species_Region, by=c("NAME_2"="regions"))
-
-cnames <- aggregate(cbind(long, lat) ~ NAME_2, data=greece_level_2_dataframe, FUN=function(x)mean(range(x))) %>% left_join(., caves_Region, by=c("NAME_2"="regions"))
-
-cnames_species <- aggregate(cbind(long, lat) ~ NAME_2, data=greece_level_2_dataframe, FUN=function(x)mean(range(x))) %>% left_join(., species_Region, by=c("NAME_2"="regions"))
+greece_level_2_dataframe <- greece_level_2 |>
+    left_join(caves_Region, by=c("NAME_2"="regions")) |>
+    dplyr::select(-Region) |>
+    left_join(species_Region, by=c("NAME_2"="regions"))
 
 
 #' Caves distribution across all regions in Greece.
 
 
 gg_region_caves <- ggplot() +
-  geom_df(data = greece_level_2,aes(x=long, y=lat,group = group,fill = number_of_caves),color="white",lwd=0.2) +
-  #geom_path(size= 0.2,color = "white") +
-  #coord_equal() +
-  #geom_text(data=cnames,aes(label = number_of_caves, x = long, y = lat)) + 
+  geom_sf(data = greece_level_2_dataframe, aes(fill=number_of_caves), color="white", lwd=0.2) +
+  #geom_text(data=cnames,aes(label = number_of_caves, x = long, y = lat)) +
   scale_fill_gradient(low="blue", high="red",breaks=seq(0,200,50), limits=c(0,200),name="Caves")+
-  scale_x_continuous(breaks = seq(18,30,1),limits = c(18,30))+
-  scale_y_continuous(breaks = seq(35,42,1),limits = c(34.5,42))+
-  coord_map(xlim = c(19,30.1), ylim = c(34.5,42))+
+  scale_x_continuous(breaks = seq(18,30,1))+
+  scale_y_continuous(breaks = seq(35,42,1))+
+  coord_sf(xlim = c(19,30.1), ylim = c(34.5,42))+
   theme_bw()+
   theme(legend.position = c(0.85, 0.80),panel.border = element_blank(),panel.grid.minor = element_blank(), panel.grid.major = element_blank(),axis.title = element_blank(), axis.text = element_blank(),axis.ticks = element_blank())
 
@@ -1476,16 +1419,13 @@ ggsave("caves_spatial_dist_per_region_no_text.png", plot = gg_region_caves, devi
 #' Regions with caves coordinates.
 
 gg_region_caves_color <- ggplot() +
-  geom_polygon(data = greece_level_2_dataframe,aes(x=long, y=lat,group = group,fill = color_manual),color="white",lwd=0.2,show.legend = F, alpha=0.5) +
-  #geom_path(size= 0.2,color = "white") +
-  #coord_equal() +
-  #geom_text(data=caves,aes(x=Longitude, y=Latitude,label = Cave_ID)) + 
+  geom_sf(data = greece_level_2_dataframe, aes(fill=color_manual), color="white", lwd=0.2, show.legend=F, alpha=0.5) +
+  #geom_text(data=caves,aes(x=Longitude, y=Latitude,label = Cave_ID)) +
   geom_point(data = caves,aes(x=Longitude, y=Latitude,color=Cave_Type),size = 3)+
   scale_color_manual(name="Cave Types", values = c("Natural"="red","Artificial"="black", "Natural Modified"= "orange"))+
-  #scale_fill_manual(values = caves_Region$color_manual)+
-  scale_x_continuous(breaks = seq(18,30,1),limits = c(18,30))+
-  scale_y_continuous(breaks = seq(35,42,1),limits = c(34.5,42))+
-  coord_map(xlim = c(19,30.1), ylim = c(34.5,42))+
+  scale_x_continuous(breaks = seq(18,30,1))+
+  scale_y_continuous(breaks = seq(35,42,1))+
+  coord_sf(xlim = c(19,30.1), ylim = c(34.5,42))+
   theme_bw()+
   theme(panel.border = element_rect(colour = "black", fill=NA, size=0.8),panel.grid.minor = element_blank(), panel.grid.major = element_blank(),axis.title = element_blank(), axis.text = element_text(size = 18))
 
@@ -1494,15 +1434,13 @@ ggsave("caves_in_region_no_text_color.png", plot = gg_region_caves_color, device
 
 #' Species distribution across all regions in Greece.
 
-gg_region_species <- ggplot(data = greece_level_2_dataframe,aes(x=long, y=lat)) +
-  geom_polygon(data = greece_level_2_dataframe,aes(x=long, y=lat,group = group,fill = number_of_species),color="white",lwd=0.2) +
-  #geom_path(size= 0.2,color = "white") +
-  #coord_equal() +
-  #geom_text(data=cnames_species,aes(label = number_of_species, x = long, y = lat)) + 
+gg_region_species <- ggplot() +
+  geom_sf(data = greece_level_2_dataframe, aes(fill=number_of_species), color="white", lwd=0.2) +
+  #geom_text(data=cnames_species,aes(label = number_of_species, x = long, y = lat)) +
   scale_fill_gradient(low="grey", high="red",breaks=seq(0,300,50), limits=c(0,300),name="Species")+
-  scale_x_continuous(breaks = seq(18,30,1),limits = c(18,30))+
-  scale_y_continuous(breaks = seq(35,42,1),limits = c(34.5,42))+
-  coord_map(xlim = c(19,30.1), ylim = c(34.5,42))+
+  scale_x_continuous(breaks = seq(18,30,1))+
+  scale_y_continuous(breaks = seq(35,42,1))+
+  coord_sf(xlim = c(19,30.1), ylim = c(34.5,42))+
   theme_bw()+
   theme(legend.position = c(0.85, 0.85),panel.border = element_blank(),panel.grid.minor = element_blank(), panel.grid.major = element_blank(),axis.title = element_blank(), axis.text = element_blank(),axis.ticks = element_blank())
 
@@ -1511,29 +1449,22 @@ ggsave("species_spatial_dist_per_region_no_text.png", plot = gg_region_species, 
 
 #' ## Species and caves distribution across Greek municipalities
 
-municipalities_shape_file_dataframe <- broom::tidy(municipalities_shape_file)
+municipalities_shape_file_dataframe <- municipalities_shape_file
 
-municipalities_greece_long_names_eng$id <- as.character(seq(from=0, to=(nrow(municipalities_greece_long_names_eng)-1)))
-
-watershedDF_muni <- municipalities_shape_file_dataframe %>% left_join(., municipalities_greece_long_names_eng, by=c("id"="id")) %>% left_join(., caves_species_municipality_join, by=("Municipalities_ISO_843"="Municipalities_ISO_843"))
-
-cnames <- aggregate(cbind(long, lat) ~ Municipalities_ISO_843, data=watershedDF_muni, FUN=function(x)mean(range(x))) %>% left_join(., caves_species_municipality_join, by=c("Municipalities_ISO_843"="Municipalities_ISO_843"))
-
-cnames_species <- aggregate(cbind(long, lat) ~ Municipalities_ISO_843, data=watershedDF_muni, FUN=function(x)mean(range(x))) %>% left_join(., caves_species_municipality_join, by=c("Municipalities_ISO_843"="Municipalities_ISO_843"))
+watershedDF_muni <- municipalities_shape_file_dataframe |>
+    left_join(caves_species_municipality_join, by="Municipalities_ISO_843")
 
 watershedDF_muni$number_of_caves[is.na(watershedDF_muni$number_of_caves)] <- 0
 watershedDF_muni$number_of_species[is.na(watershedDF_muni$number_of_species)] <- 0
 
 
 gg_municipalities_caves <- ggplot() +
-  geom_polygon(data = watershedDF_muni,aes(x=long, y=lat,group = group,fill = number_of_caves),color="white",lwd=0.08) +
-  #geom_path(size= 0.2,color = "white") +
-  #coord_equal() +
-  #geom_text(data=cnames,aes(label = number_of_caves, x = long, y = lat)) + 
+  geom_sf(data = watershedDF_muni, aes(fill=number_of_caves), color="white", lwd=0.08) +
+  #geom_text(data=cnames,aes(label = number_of_caves, x = long, y = lat)) +
   scale_fill_gradient(low="blue", high="red",breaks=seq(0,20,5), limits=c(0,20),name="Caves")+
-  scale_x_continuous(breaks = seq(18,30,1),limits = c(18,30))+
-  scale_y_continuous(breaks = seq(35,42,1),limits = c(34.5,42))+
-  coord_map(xlim = c(19,30.1), ylim = c(34.5,42))+
+  scale_x_continuous(breaks = seq(18,30,1))+
+  scale_y_continuous(breaks = seq(35,42,1))+
+  coord_sf(xlim = c(19,30.1), ylim = c(34.5,42))+
   theme_bw()+
   theme(legend.position = c(0.85, 0.85),panel.border = element_blank(),panel.grid.minor = element_blank(), panel.grid.major = element_blank(),axis.title = element_blank(), axis.text = element_blank(),axis.ticks = element_blank())
 
@@ -1541,14 +1472,12 @@ ggsave("caves_spatial_dist_per_municipality_no_text.png", plot = gg_municipaliti
 
 
 gg_municipalities_species <- ggplot() +
-  geom_polygon(data = watershedDF_muni,aes(x=long, y=lat,group = group,fill = number_of_species),color="white",lwd=0.082) +
-  #geom_path(size= 0.2,color = "white") +
-  #coord_equal() +
-  #geom_text(data=cnames,aes(label = number_of_caves, x = long, y = lat)) + 
+  geom_sf(data = watershedDF_muni, aes(fill=number_of_species), color="white", lwd=0.082) +
+  #geom_text(data=cnames,aes(label = number_of_caves, x = long, y = lat)) +
   scale_fill_gradient(low="grey", high="red",breaks=seq(0,80,20), limits=c(0,80),name="Species")+
-  scale_x_continuous(breaks = seq(18,30,1),limits = c(18,30))+
-  scale_y_continuous(breaks = seq(35,42,1),limits = c(34.5,42))+
-  coord_map(xlim = c(19,30.1), ylim = c(34.5,42))+
+  scale_x_continuous(breaks = seq(18,30,1))+
+  scale_y_continuous(breaks = seq(35,42,1))+
+  coord_sf(xlim = c(19,30.1), ylim = c(34.5,42))+
   theme_bw()+
   theme(legend.position = c(0.85, 0.85),panel.border = element_blank(),panel.grid.minor = element_blank(), panel.grid.major =element_blank(),axis.title = element_blank(), axis.text = element_blank(),axis.ticks = element_blank())
 
@@ -1589,28 +1518,26 @@ ggsave("caves_protection_data_greece.jpeg", plot = last_plot(), device = "jpeg",
 #' With google earth background.
 ## load greek borders
 
-hellenic_borders_shapefile <- maptools::readShapeLines("Shapefiles/hellenic_borders/hellenic_borders",verbose=TRUE)
+hellenic_borders_shapefile <- sf::st_read("spatial_data/hellenic_borders/hellenic_borders.shp")
 
-proj4string(hellenic_borders_shapefile) <- CRS("+proj=longlat +datum=WGS84") #CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs")  # this is WGS84
-
-hellenic_borders_shapefile_dataframe <- broom::tidy(hellenic_borders_shapefile)
-bbox_hellenic_borders <- hellenic_borders_shapefile@bbox
+hellenic_borders_shapefile_dataframe <- hellenic_borders_shapefile
+bbox_hellenic_borders <- sf::st_bbox(hellenic_borders_shapefile)
 bbox_hellenic_borders_lat <- bbox_hellenic_borders
 
 #' Only with borders.
 
 map_greece_plot_lines <- ggplot()+
-  geom_polygon(data = hellenic_borders_shapefile_dataframe,aes(x=long, y=lat,group = group),lwd=0.12,color="black")+
-  geom_polygon(data = natura2000_new_shapefile_v30_dataframe,aes(x=long, y=lat,group = group,fill=SITETYPE),lwd=0.082, alpha=0.6)+
-  geom_polygon(data = katafygia_agrias_zwhs_dataframe,aes(x=long, y=lat,group = group,fill="Wildlife Refuge"),lwd=0.082,alpha=0.8)+
+  geom_sf(data = hellenic_borders_shapefile_dataframe, lwd=0.12, color="black", fill=NA)+
+  geom_sf(data = natura2000_new_shapefile_v30_dataframe, aes(fill=SITETYPE), lwd=0.082, alpha=0.6)+
+  geom_sf(data = katafygia_agrias_zwhs_dataframe, aes(fill="Wildlife Refuge"), lwd=0.082, alpha=0.8)+
   geom_point(data = caves,aes(x=Longitude, y=Latitude,color="Caves"),size = 0.2)+
   #geom_text(data = caves,aes(x=Longitude, y=Latitude,label=Cave_ID))+
   labs(x="Longitude",y="Latitude")+
   scale_fill_manual(values = c("chartreuse3","purple","cyan3","chocolate2"),labels = c("Natura2000 v30 SCI", "Natura2000 v30 SPA", "Natura2000 v30 SCISPA","Wildlife Refuge"),name="Protected areas")+
   scale_color_manual(name="", values = c("Caves"="red"))+
-  scale_x_continuous(breaks = seq(18,30,1),limits = c(18,30))+
-  scale_y_continuous(breaks = seq(35,42,1),limits = c(34.5,42))+
-  coord_map(xlim = c(19,30.1), ylim = c(34.5,42))+
+  scale_x_continuous(breaks = seq(18,30,1))+
+  scale_y_continuous(breaks = seq(35,42,1))+
+  coord_sf(xlim = c(19,30.1), ylim = c(34.5,42))+
   theme_bw()+
   theme(panel.grid.minor = element_blank(), panel.grid.major = element_blank(),legend.position = c(0.87, 0.73),legend.text = element_text(size=9),legend.title = element_text(size=10))
 #geom_text(data = sisquoc, aes(label = paste("  ", as.character(name), sep="")), angle = 60, hjust = 0, color = "yellow")
@@ -1622,29 +1549,23 @@ ggsave("map_greece_plot_lines.png", plot = map_greece_plot_lines, device = "png"
 #' ## Grids
 ## https://gis.stackexchange.com/questions/124295/convert-coordinates-from-readshapepoly-in-r-to-long-lat-coordinates ## sotireeees
 
-grid_100k_shapefile <- readOGR("Shapefiles/EEA_reference_grid_1_10_50_and_100_kmgr/GR_100k.shp",verbose=TRUE)
+grid_100k_shapefile <- sf::st_read("spatial_data/Greece_shapefile/gr_100km.shp")
+grid_100k_shapefile_wgs84 <- sf::st_transform(grid_100k_shapefile, crs = "WGS84") |>
+    rename(CellCode=CELLCODE, EofOrigin=EOFORIGIN, NofOrigin=NOFORIGIN)
 
+grid_10k_shapefile <- sf::st_read("spatial_data/Greece_shapefile/gr_10km.shp")
+grid_10k_shapefile_wgs84 <- sf::st_transform(grid_10k_shapefile, crs = "WGS84") |>
+    rename(CellCode=CELLCODE, EofOrigin=EOFORIGIN, NofOrigin=NOFORIGIN)
 
-grid_100k_shapefile_wgs84 <- spTransform(grid_100k_shapefile, CRS("+proj=longlat +datum=WGS84"))
-grid_100k_shapefile_dataframe <- broom::tidy(grid_100k_shapefile_wgs84)
-
-grid_10k_shapefile <- readOGR("Shapefiles/EEA_reference_grid_1_10_50_and_100_kmgr/GR_10k.shp",verbose=TRUE)
-
-
-grid_10k_shapefile_wgs84 <- spTransform(grid_10k_shapefile, CRS("+proj=longlat +datum=WGS84"))
-grid_10k_shapefile_dataframe <- broom::tidy(grid_10k_shapefile_wgs84)
-
-
-grid_10k_shapefile_wgs84_data <- grid_10k_shapefile_wgs84 %>% mutate(id=as.character(seq(from=0, to=(nrow(grid_10k_shapefile_wgs84)-1)))) %>% left_join(grid_10k_shapefile_dataframe,by=c("id"="id")) %>% dplyr::select(-c(EofOrigin,NofOrigin))
+grid_10k_shapefile_wgs84_data <- grid_10k_shapefile_wgs84 |> dplyr::select(-EofOrigin, -NofOrigin)
 
 dim(grid_10k_shapefile_wgs84)
-length(unique(grid_10k_shapefile_dataframe$id))
  
 
 #grid_1k_shapefile <- readOGR("EEA_reference_grid_1_10_50_and_100_kmgr/GR_1k.shp",verbose=TRUE)
 
 
-#grid_1k_shapefile_wgs84 <- spTransform(grid_1k_shapefile, CRS("+proj=longlat +datum=WGS84"))
+#grid_1k_shapefile_wgs84 <- sf::st_transform(grid_1k_shapefile, crs = "WGS84")
 #grid_1k_shapefile_dataframe <- tidy(grid_1k_shapefile_wgs84)
 
  
@@ -1653,19 +1574,12 @@ length(unique(grid_10k_shapefile_dataframe$id))
 ## ---- warning=FALSE, message=FALSE, echo=FALSE---------------------------
 
 # caves over polygon
-Caves_Database_kml_to_txt_shapefile_wgs84 <- spTransform(Caves_Database_kml_to_txt_shapefile, CRS("+proj=longlat +datum=WGS84"))
+Caves_Database_kml_to_txt_shapefile_wgs84 <- sf::st_transform(Caves_Database_kml_to_txt_shapefile, crs = "WGS84")
 
 
-### over grid
-
-over_grid_10k <- sp::over( x = Caves_Database_kml_to_txt_shapefile_wgs84 , y = grid_10k_shapefile_wgs84 , fn = NULL)
-
-
-
-# 
-#grid_10k_shapefile_dataframe
-
-caves_in_over_grid_10k <- over_grid_10k %>% mutate(ID=as.character(seq(1:nrow(over_grid_10k)))) %>% left_join(Caves_Database_kml_to_txt,by=c("ID"="ID"))
+### over grid — find which 10km cell each cave falls in
+caves_in_over_grid_10k <- sf::st_join(Caves_Database_kml_to_txt_shapefile_wgs84, grid_10k_shapefile_wgs84, join=sf::st_within) |>
+    sf::st_drop_geometry()
 
 #%>% 
 grid_10k_caves <- grid_10k_shapefile_wgs84_data %>% left_join(caves_in_over_grid_10k,by=c("CellCode"="CellCode"))
@@ -1733,25 +1647,18 @@ grid_10k_endemic_species_abundance <- grid_10k_caves_abundance %>% left_join(cav
 # species
 
 grid_10k_species_abundance_plot <- ggplot()+
-  geom_polygon(data = grid_10k_species_abundance,aes(x=long, y=lat,group = group,fill=number_of_species),lwd=0.082, alpha=0.83)+
+  geom_sf(data = greece_level_2_dataframe, fill=greece_level_2_dataframe$color_manual, color="white", lwd=0.2, show.legend=F, alpha=0.35)+
+  geom_sf(data = grid_10k_species_abundance, aes(fill=number_of_species), lwd=0.082, alpha=0.83)+
   scale_fill_gradientn(colours = c("gray100","gray50","gray40","gray35","gray30","gray20","gray10","gray0"),name="Number of species")+
-  #geom_polygon(data = grid_100k_shapefile_dataframe,aes(x=long, y=lat,group = group),lwd=0.082, alpha=0.6)+
-  #geom_polygon(data = hellenic_borders_shapefile_dataframe,aes(x=long, y=lat,group = group),lwd=0.04,color="black")+
-  #geom_polygon(data = natura2000shapefile_dataframe,aes(x=long, y=lat,group = group,fill=SITETYPE),lwd=0.082, alpha=0.6)+
-  #geom_polygon(data = katafygia_agrias_zwhs_dataframe,aes(x=long, y=lat,group = group,fill="Wildlife Refuge"),lwd=0.082,alpha=0.8)+
-  geom_polygon(data = greece_level_2_dataframe,aes(x=long, y=lat,group = group),fill=greece_level_2_dataframe$color_manual, color="white",lwd=0.2,show.legend = F, alpha=0.35)+
   geom_point(data = caves,aes(x=Longitude, y=Latitude,color=Cave_Type),size = 1.3)+
   labs(x="Longitude",y="Latitude")+
   ggtitle("Species richness")+
-  #scale_fill_manual(values = c("chartreuse3","purple","cyan3","chocolate2"),labels = c("Natura2000 SCI", "Natura2000 SPA", "Natura2000 SPASCI","Wildlife Refuge"),name="Protected areas")+
-  #scale_fill_manual(values = c("SCI"="chartreuse3","SPA"="purple","SPASCI"="cyan3", "Wildlife Refuge"="chocolate2"),labels = c("Natura2000 SCI", "Natura2000 SPA", "Natura2000 SPASCI","Wildlife Refuge")name="Protected areas")+
-  scale_color_manual(name="Cave Types", values = c("Natural"="red","Artificial"="black", "Natural Modified"= "orange"))+  
-  #scale_fill_manual(values = unique(greece_level_2_dataframe$color_manual))+
-  scale_x_continuous(breaks = seq(18,30,1),limits = c(18,30))+
-  scale_y_continuous(breaks = seq(35,42,1),limits = c(34.5,42))+
-  coord_map(xlim = c(19,30.1), ylim = c(34.5,42))+
+  scale_color_manual(name="Cave Types", values = c("Natural"="red","Artificial"="black", "Natural Modified"= "orange"))+
+  scale_x_continuous(breaks = seq(18,30,1))+
+  scale_y_continuous(breaks = seq(35,42,1))+
+  coord_sf(xlim = c(19,30.1), ylim = c(34.5,42))+
   theme_bw()+
-  guides(colour = guide_legend(order = 1), 
+  guides(colour = guide_legend(order = 1),
               fill = guide_legend(order = 2))+
   theme(panel.grid.minor = element_blank(), panel.grid.major = element_blank(),legend.position = c(0.145, 0.15),legend.text = element_text(size=16,hjust = 0.5),legend.title = element_text(size=18,hjust = 0.5),axis.text=element_text(size = 16),plot.title = element_text(size=22),axis.title = element_text(size = 18),legend.title.align = 0.5,legend.box = "vertical")
   #guides(colour=guide_legend(override.aes=list(fill=unique(greece_level_2_dataframe$color_manual))))
@@ -1782,16 +1689,16 @@ ggsave("map_greece_plot_lines_grid_species.png", plot = grid_10k_species_abundan
 # species endemic species richness
 
 ggplot()+
-  geom_polygon(data = grid_10k_endemic_species_abundance,aes(x=long, y=lat,group = group,fill=number_of_species),lwd=0.082, alpha=0.6)+
-  geom_polygon(data = hellenic_borders_shapefile_dataframe,aes(x=long, y=lat,group = group),lwd=0.12,color="black")+
+  geom_sf(data = grid_10k_endemic_species_abundance, aes(fill=number_of_species), lwd=0.082, alpha=0.6)+
+  geom_sf(data = hellenic_borders_shapefile_dataframe, lwd=0.12, color="black", fill=NA)+
   geom_point(data = caves,aes(x=Longitude, y=Latitude,color="Caves"),size = 0.2)+
   labs(x="Longitude",y="Latitude")+
   ggtitle("Endemic species richness")+
   scale_color_manual(name="", values = c("Caves"="red"))+
-  scale_fill_gradientn(colours = c("gray100",terrain.colors(10)),na.value = "grey50" ,name="Number of species")+ #c("gray100","gray50","gray40","gray35","gray30","gray20","gray10","gray0")
-  scale_x_continuous(breaks = seq(18,30,1),limits = c(18,30))+
-  scale_y_continuous(breaks = seq(35,42,1),limits = c(34.5,42))+
-  coord_map(xlim = c(19,30.1), ylim = c(34.5,42))+
+  scale_fill_gradientn(colours = c("gray100",terrain.colors(10)),na.value = "grey50" ,name="Number of species")+
+  scale_x_continuous(breaks = seq(18,30,1))+
+  scale_y_continuous(breaks = seq(35,42,1))+
+  coord_sf(xlim = c(19,30.1), ylim = c(34.5,42))+
   theme_bw()+
   theme(panel.grid.minor = element_blank(), panel.grid.major = element_blank(),legend.position = c(0.87, 0.75),legend.text = element_text(size=13),legend.title = element_text(size=14),axis.text=element_text(size = 16),plot.title = element_text(size=22),axis.title = element_text(size = 18))
 
@@ -1808,14 +1715,13 @@ ggplot()+
 # species classification
 
 ggplot()+
-  geom_polygon(data = grid_10k_species_abundance_classification,aes(x=long, y=lat,group = group,fill=number_of_species),lwd=0.082, alpha=0.6)+
-  geom_polygon(data = hellenic_borders_shapefile_dataframe,aes(x=long, y=lat,group = group),lwd=0.12,color="black")+
+  geom_sf(data = grid_10k_species_abundance_classification, aes(fill=number_of_species), lwd=0.082, alpha=0.6)+
+  geom_sf(data = hellenic_borders_shapefile_dataframe, lwd=0.12, color="black", fill=NA)+
   #geom_point(data = caves,aes(x=Longitude, y=Latitude,color="Caves"),size = 0.2)+
   labs(x="Longitude",y="Latitude")+
-  #scale_color_manual(name="", values = c("Caves"="red"))+
    scale_fill_gradientn(colours = rev(rainbow(9)),
                          breaks = c(0, 5, 10, 15, 20, 25,30))+
-  coord_map(xlim = c(19,30.1), ylim = c(34.5,42))+
+  coord_sf(xlim = c(19,30.1), ylim = c(34.5,42))+
   theme_bw()+
   theme(panel.grid.minor = element_blank(), panel.grid.major = element_blank(),legend.text = element_text(size=9),legend.title = element_text(size=10)) +
   facet_wrap(~ Classification, ncol=3)
@@ -1825,11 +1731,11 @@ ggplot()+
 
 
 
-YPOGEIA_YDATIKA_SYSTIMATA <- rgdal::readOGR("Shapefiles/YPOGEIA_YDATIKA_SYSTIMATA/GR_GWB_50K_GREECE.shp")
+YPOGEIA_YDATIKA_SYSTIMATA <- sf::st_read("spatial_data/YPOGEIA_YDATIKA_SYSTIMATA/GR_GWB_50K_GREECE.shp")
 
-YPOGEIA_YDATIKA_SYSTIMATA_wgs84 <- spTransform(YPOGEIA_YDATIKA_SYSTIMATA, CRS("+proj=longlat +datum=WGS84"))
+YPOGEIA_YDATIKA_SYSTIMATA_wgs84 <- sf::st_transform(YPOGEIA_YDATIKA_SYSTIMATA, crs = "WGS84")
 
-YPOGEIA_YDATIKA_SYSTIMATA_wgs84_data <- broom::tidy(YPOGEIA_YDATIKA_SYSTIMATA_wgs84)
+YPOGEIA_YDATIKA_SYSTIMATA_wgs84_data <- YPOGEIA_YDATIKA_SYSTIMATA_wgs84
 
 print("End of spatial analysis")
 
@@ -1844,7 +1750,7 @@ caves_crete <- caves %>% filter(Region=="Kriti")
 
 troglobiont <- species %>% filter(Classification=="Troglobiont")
 
-caves_species_wide <- census_long_man %>% dplyr::select(Cave_ID,Species) %>% distinct() %>% filter(Species %in% troglobiont$Species_Full_Name) %>% mutate(presence=1) %>% spread(value = presence,key = Species,fill = 0)
+caves_species_wide <- census_long_man %>% dplyr::select(Cave_ID,Species) %>% distinct() %>% filter(Species %in% troglobiont$Species_Full_Name) %>% mutate(presence=1) %>% pivot_wider(names_from=Species, values_from=presence, values_fill=0)
 
 rownames(caves_species_wide) <- caves_species_wide$Cave_ID
 
@@ -1864,7 +1770,7 @@ caves_species_wide_distance_ma_df <- as.data.frame(caves_species_wide_distance_m
 
 caves_species_wide_distance_ma_df$cave1 <- rownames(caves_species_wide_distance_ma_df)
 
-caves_species_wide_distance_df <- gather(caves_species_wide_distance_ma_df,cave2,value = distance,-cave1)
+caves_species_wide_distance_df <- pivot_longer(caves_species_wide_distance_ma_df,-cave1, names_to="cave2", values_to="distance")
 
 caves_species_wide_distance_tidy <- broom::tidy(caves_species_wide_distance)
 
@@ -1962,7 +1868,7 @@ jacc.dft <- broom::tidy(jaccard)
 
 species_accumulation <- census %>% distinct(Species,Cave_ID) %>% mutate(Duplicates=duplicated(Species), species_epithet= as.character(lapply(strsplit(as.character(Species), split=" "), "[", n=2))) %>% filter(species_epithet!="sp.") %>% mutate(.,First_occurance=if_else(Duplicates=="FALSE",1,0)) %>% filter(First_occurance==1) %>% group_by(Cave_ID) %>% mutate(First_occurance_per_cave=sum(First_occurance))# %>% group_by(First_occurance_per_cave) %>% summarise(number_of_caves=n()) #mutate(Cumulative_occurance= cumsum(First_occurance))
 
-species_accumulation_wide <- census %>% mutate(species_epithet= as.character(lapply(strsplit(as.character(Species), split=" "), "[", n=2))) %>% filter(species_epithet!="sp.") %>% dplyr::select(Cave_ID,Species) %>% distinct() %>% mutate(presence=1) %>% spread(value = presence,key = Species,fill = 0) %>% tibble::column_to_rownames(.,var="Cave_ID")  # %>% dplyr::select(-Cave_ID)
+species_accumulation_wide <- census %>% mutate(species_epithet= as.character(lapply(strsplit(as.character(Species), split=" "), "[", n=2))) %>% filter(species_epithet!="sp.") %>% dplyr::select(Cave_ID,Species) %>% distinct() %>% mutate(presence=1) %>% pivot_wider(names_from=Species, values_from=presence, values_fill=0) %>% tibble::column_to_rownames(.,var="Cave_ID")  # %>% dplyr::select(-Cave_ID)
 
 acc <- specaccum(species_accumulation_wide,"random")
 
@@ -2462,14 +2368,14 @@ ggsave("crete_species_Subregion_endemic_crete_barplot_endemic_crete.jpeg", plot 
 
 species_protection <- strsplit(x = species$Protection_Status,split = "|",fixed=TRUE)
 
-species_protection_data <- data_frame(Species_Protection=unlist(species_protection),Species=rep.int(species$Species_Full_Name,times = sapply(species_protection,length)),Class=rep.int(species$Class,times = sapply(species_protection,length)),Classification=rep.int(species$Classification,times = sapply(species_protection,length)))
+species_protection_data <- tibble(Species_Protection=unlist(species_protection),Species=rep.int(species$Species_Full_Name,times = sapply(species_protection,length)),Class=rep.int(species$Class,times = sapply(species_protection,length)),Classification=rep.int(species$Classification,times = sapply(species_protection,length)))
 
 
 species_protection_data_crete <- crete_species %>% distinct(Species) %>% left_join(species_protection_data, by=c("Species"="Species"))
 
 species_protection_data_summary_crete <- species_protection_data_crete %>% group_by(Species_Protection) %>% summarise(number_of_species=n())
 
-species_protection_data_classification <- species_protection_data_crete %>% mutate(Protection_Status=if_else(is.na(Species_Protection)==TRUE,"Not protected","Protected")) %>% group_by(Classification,Protection_Status) %>% summarise(number_of_species=n()) %>% ungroup() %>% spread(key = Protection_Status,value = number_of_species,fill=0) %>% gather(key =Protection_Status,value =number_of_species,  -Classification)
+species_protection_data_classification <- species_protection_data_crete %>% mutate(Protection_Status=if_else(is.na(Species_Protection)==TRUE,"Not protected","Protected")) %>% group_by(Classification,Protection_Status) %>% summarise(number_of_species=n()) %>% ungroup() %>% pivot_wider(names_from=Protection_Status,values_from=number_of_species,values_fill=0) %>% pivot_longer(-Classification, names_to="Protection_Status", values_to="number_of_species")
 
 species_protection_data_classification$Classification <- factor(species_protection_data_classification$Classification,levels = c("Accidental","Trogloxene","Stygoxene","Stygophile","Troglophile","Stygobiont","Troglobiont"))
 
@@ -2489,7 +2395,7 @@ ggsave("species_protection_data_classification_crete.png", plot = species_protec
 #' 
 caves_protection <- strsplit(x = caves$Protection_Status,split = "|",fixed=TRUE)
 
-caves_protection_data <- data_frame(Caves_Protection=unlist(caves_protection),CaveName=rep.int(caves$Cave_Name,times = sapply(caves_protection,length)),Cave_ID=rep.int(caves$Cave_ID,times = sapply(caves_protection,length)),Region=rep.int(caves$Region,times = sapply(caves_protection,length)),Altitude=rep.int(caves$Altitude,times = sapply(caves_protection,length))) %>% mutate(Protection_Type=if_else(is.na(Caves_Protection),"Not protected", if_else(grepl("^G.",x = Caves_Protection),"Natura2000","Wildlife Refuge")))
+caves_protection_data <- tibble(Caves_Protection=unlist(caves_protection),CaveName=rep.int(caves$Cave_Name,times = sapply(caves_protection,length)),Cave_ID=rep.int(caves$Cave_ID,times = sapply(caves_protection,length)),Region=rep.int(caves$Region,times = sapply(caves_protection,length)),Altitude=rep.int(caves$Altitude,times = sapply(caves_protection,length))) %>% mutate(Protection_Type=if_else(is.na(Caves_Protection),"Not protected", if_else(grepl("^G.",x = Caves_Protection),"Natura2000","Wildlife Refuge")))
 
 caves_protection_data_summary_crete <- caves_protection_data %>% filter(Region=="Kriti") %>% group_by(Protection_Type) %>% summarise(number_of_caves=n())
 
@@ -2508,7 +2414,7 @@ ggsave("caves_protection_data_crete.jpeg", plot = last_plot(), device = "jpeg", 
 
 #' ## IUCN status
 
-iucn_species_crete <- crete_species %>% distinct(Species) %>% left_join(species,by=c("Species"="Species_Full_Name")) %>% group_by(IUCN_Red_List) %>% summarise(number_of_species=n()) %>% mutate(Red_List="IUCN Red List") %>% dplyr::rename(., Categories=IUCN_Red_List) %>% rbind(.,data_frame(Categories="EN - Endangered",number_of_species=0,Red_List="IUCN Red List"))
+iucn_species_crete <- crete_species %>% distinct(Species) %>% left_join(species,by=c("Species"="Species_Full_Name")) %>% group_by(IUCN_Red_List) %>% summarise(number_of_species=n()) %>% mutate(Red_List="IUCN Red List") %>% dplyr::rename(., Categories=IUCN_Red_List) %>% rbind(.,tibble(Categories="EN - Endangered",number_of_species=0,Red_List="IUCN Red List"))
 
 kable(iucn_species_crete)
 
@@ -2659,7 +2565,7 @@ ggsave("species_per_altitude_class_crete_scat.jpeg", plot = last_plot(), device 
 
 species_accumulation_crete <- crete_census %>% distinct(Species,Cave_ID) %>% mutate(Duplicates=duplicated(Species), species_epithet= as.character(lapply(strsplit(as.character(Species), split=" "), "[", n=2))) %>% filter(species_epithet!="sp.") %>% mutate(.,First_occurance=if_else(Duplicates=="FALSE",1,0)) %>% filter(First_occurance==1) %>% group_by(Cave_ID) %>% mutate(First_occurance_per_cave=sum(First_occurance))# %>% group_by(First_occurance_per_cave) %>% summarise(number_of_caves=n()) #mutate(Cumulative_occurance= cumsum(First_occurance))
 
-species_accumulation_crete_wide <- crete_census %>% mutate(species_epithet= as.character(lapply(strsplit(as.character(Species), split=" "), "[", n=2))) %>% filter(species_epithet!="sp.") %>% dplyr::select(Cave_ID,Species) %>% distinct() %>% mutate(presence=1) %>% spread(value = presence,key = Species,fill = 0) %>% tibble::column_to_rownames(.,var="Cave_ID")  # %>% dplyr::select(-Cave_ID)
+species_accumulation_crete_wide <- crete_census %>% mutate(species_epithet= as.character(lapply(strsplit(as.character(Species), split=" "), "[", n=2))) %>% filter(species_epithet!="sp.") %>% dplyr::select(Cave_ID,Species) %>% distinct() %>% mutate(presence=1) %>% pivot_wider(names_from=Species, values_from=presence, values_fill=0) %>% tibble::column_to_rownames(.,var="Cave_ID")  # %>% dplyr::select(-Cave_ID)
 
 acc <- specaccum(species_accumulation_crete_wide,"random")
 
@@ -2703,7 +2609,7 @@ census_long_man_reference_all_species_classification_crete <- census_long_man_re
 
 
 species_occurrence_accumulation_classification_plot_crete <- ggplot()+
-  geom_line(data=census_long_man_reference_all_species_classification_crete,aes(x=Year, y= Cumulative_occurance,color=Classification),size=1,show.legend = T)+
+  geom_line(data=census_long_man_reference_all_species_classification_crete,aes(x=Year, y= Cumulative_occurance,color=Classification),linewidth=1,show.legend = T)+
   #ggtitle("Class")+
   scale_x_continuous(breaks = seq(1860,2020,10),limits = c(1860,2020),expand=c(0.015,0))+
   scale_y_continuous(breaks = seq(0,300,25), limits = c(0,300),expand = c(0.01,0))+
@@ -2725,84 +2631,63 @@ caves_crete_Database_kml_to_txt$Longitude <- as.numeric(caves_crete_Database_kml
 
 caves_crete_Database_kml_to_txt$ID <- as.character(seq(1:nrow(caves_crete_Database_kml_to_txt)))
 
-caves_crete_Database_kml_to_txt_shapefile_wgs84 <- caves_crete_Database_kml_to_txt
+caves_crete_Database_kml_to_txt_shapefile_wgs84 <- caves_crete_Database_kml_to_txt |>
+    sf::st_as_sf(coords=c("Longitude","Latitude"), crs="WGS84", remove=FALSE)
 
-coordinates(caves_crete_Database_kml_to_txt_shapefile_wgs84)<-~Longitude+Latitude
-proj4string(caves_crete_Database_kml_to_txt_shapefile_wgs84) <- CRS("+proj=longlat +datum=WGS84")# CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs")  # this is WGS84
-
-caves_crete_Database_kml_to_txt_shapefile <- spTransform(caves_crete_Database_kml_to_txt_shapefile_wgs84, CRS( "+proj=tmerc +lat_0=0 +lon_0=24 +k=0.9996 +x_0=500000 +y_0=0 +datum=GGRS87 +units=m +no_defs +ellps=GRS80
-+towgs84=-199.87,74.79,246.62"))
+caves_crete_Database_kml_to_txt_shapefile <- sf::st_transform(caves_crete_Database_kml_to_txt_shapefile_wgs84, crs=2100)
 
 #' ### Geological maps of Crete
 #Rethymno
-rethymno_geomap  <- rgdal::readOGR("Shapefiles/Crete_geological_map_SHP/rethymno/geo_uniRETHYMNON.shp",verbose = T,p4s = "+proj=tmerc +lat_0=0 +lon_0=24 +k=0.9996 +x_0=500000 +y_0=0 +datum=GGRS87 +units=m +no_defs", use_iconv = FALSE,encoding = "ISO-8859-7")
-
-#,p4s = "+proj=longlat +datum=WGS84 +ellps=GRS80 +units=m +no_defs"
-rethymno_geomap_wgs84 <- spTransform(rethymno_geomap, CRS(" +proj=longlat +datum=GGRS87 +no_defs"))
-
-rethymno_geomap_names <- rethymno_geomap_wgs84@data %>% mutate(id=as.character(seq(from=0,to=(nrow(rethymno_geomap_wgs84@data)-1))))
-
-rethymno_geomap_data <- broom::tidy(rethymno_geomap_wgs84) %>% left_join(rethymno_geomap_names,by=c("id"="id"))
-
-over_rethymno_geomap_data <- over( x = caves_crete_Database_kml_to_txt_shapefile , y = rethymno_geomap , returnList = T) # This is from rgeos, it contains multiple matches, thats why returnList=T. VERY Important
-
+rethymno_geomap <- sf::st_read("spatial_data/Crete_geological_map_SHP/rethymno/geo_uniRETHYMNON.shp",
+    options="ENCODING=ISO-8859-7") |> sf::st_set_crs(2100)
+rethymno_geomap_wgs84 <- sf::st_transform(rethymno_geomap, crs="WGS84")
+rethymno_geomap_data <- rethymno_geomap_wgs84
+over_rethymno_geomap_data <- sf::st_join(caves_crete_Database_kml_to_txt_shapefile, rethymno_geomap, join=sf::st_intersects) |>
+    sf::st_drop_geometry()
 
 #Irakleio
-irakleio_geomap  <- rgdal::readOGR("Shapefiles/Crete_geological_map_SHP/irakleio/geo_uniHERAKLION.shp",verbose = T,p4s = "+proj=tmerc +lat_0=0 +lon_0=24 +k=0.9996 +x_0=500000 +y_0=0 +datum=GGRS87 +units=m +no_defs", use_iconv = FALSE,encoding = "ISO-8859-7")
-
-irakleio_geomap_wgs84 <- spTransform(irakleio_geomap, CRS(" +proj=longlat +datum=GGRS87 +no_defs"))
-
-irakleio_geomap_names <- irakleio_geomap_wgs84@data %>% mutate(id=as.character(seq(from=0,to=(nrow(irakleio_geomap_wgs84@data)-1))))
-
-irakleio_geomap_data <- broom::tidy(irakleio_geomap_wgs84) %>% left_join(irakleio_geomap_names,by=c("id"="id"))
-
-over_irakleio_geomap_data <- over( x = caves_crete_Database_kml_to_txt_shapefile , y = irakleio_geomap , returnList = T) # This is from rgeos, it contains multiple matches, thats why returnList=T. VERY Important
-
+irakleio_geomap <- sf::st_read("spatial_data/Crete_geological_map_SHP/irakleio/geo_uniHERAKLION.shp",
+    options="ENCODING=ISO-8859-7") |> sf::st_set_crs(2100)
+irakleio_geomap_wgs84 <- sf::st_transform(irakleio_geomap, crs="WGS84")
+irakleio_geomap_data <- irakleio_geomap_wgs84
+over_irakleio_geomap_data <- sf::st_join(caves_crete_Database_kml_to_txt_shapefile, irakleio_geomap, join=sf::st_intersects) |>
+    sf::st_drop_geometry()
 
 #Chania
-chania_geomap  <- rgdal::readOGR("Shapefiles/Crete_geological_map_SHP/chania",layer = "geo_uniCHANIA",verbose = T,p4s = "+proj=tmerc +lat_0=0 +lon_0=24 +k=0.9996 +x_0=500000 +y_0=0 +datum=GGRS87 +units=m +no_defs", use_iconv = FALSE,encoding = "ISO-8859-7")
-
-chania_geomap_wgs84 <- spTransform(chania_geomap, CRS(" +proj=longlat +datum=GGRS87 +no_defs"))
-
-chania_geomap_names <- chania_geomap_wgs84@data %>% mutate(id=as.character(seq(from=0,to=(nrow(chania_geomap_wgs84@data)-1))))
-
-chania_geomap_data <- broom::tidy(chania_geomap_wgs84) %>% left_join(chania_geomap_names,by=c("id"="id"))
-
-over_chania_geomap_data <- over( x = caves_crete_Database_kml_to_txt_shapefile , y = chania_geomap , returnList = T) # This is from rgeos, it contains multiple matches, thats why returnList=T. VERY Important
+chania_geomap <- sf::st_read("spatial_data/Crete_geological_map_SHP/chania/geo_uniCHANIA.shp",
+    options="ENCODING=ISO-8859-7") |> sf::st_set_crs(2100)
+chania_geomap_wgs84 <- sf::st_transform(chania_geomap, crs="WGS84")
+chania_geomap_data <- chania_geomap_wgs84
+over_chania_geomap_data <- sf::st_join(caves_crete_Database_kml_to_txt_shapefile, chania_geomap, join=sf::st_intersects) |>
+    sf::st_drop_geometry()
 
 # lasithi
-
-lasithi1_geomap  <- rgdal::readOGR("Shapefiles/Crete_geological_map_SHP/lasithi/geo_uniLASITHI_1.shp",verbose = T,p4s = "+proj=tmerc +lat_0=0 +lon_0=24 +k=0.9996 +x_0=500000 +y_0=0 +datum=GGRS87 +units=m +no_defs", use_iconv = FALSE,encoding = "ISO-8859-7")
-
-lasithi1_geomap_wgs84 <- spTransform(lasithi1_geomap, CRS(" +proj=longlat +datum=GGRS87 +no_defs"))
-
-lasithi1_geomap_names <- lasithi1_geomap_wgs84@data %>% mutate(id=as.character(seq(from=0,to=(nrow(lasithi1_geomap_wgs84@data)-1))))
-
-lasithi1_geomap_data <- broom::tidy(lasithi1_geomap_wgs84) %>% left_join(lasithi1_geomap_names,by=c("id"="id")) 
-
-over_lasithi1_geomap_data <- over( x = caves_crete_Database_kml_to_txt_shapefile , y = lasithi1_geomap , returnList = T) # This is from rgeos, it contains multiple matches, thats why returnList=T. VERY Important
-
+lasithi1_geomap <- sf::st_read("spatial_data/Crete_geological_map_SHP/lasithi/geo_uniLASITHI_1.shp",
+    options="ENCODING=ISO-8859-7") |> sf::st_set_crs(2100)
+lasithi1_geomap_wgs84 <- sf::st_transform(lasithi1_geomap, crs="WGS84")
+lasithi1_geomap_data <- lasithi1_geomap_wgs84
+over_lasithi1_geomap_data <- sf::st_join(caves_crete_Database_kml_to_txt_shapefile, lasithi1_geomap, join=sf::st_intersects) |>
+    sf::st_drop_geometry()
 
 #2
-
-lasithi2_geomap  <- rgdal::readOGR("Shapefiles/Crete_geological_map_SHP/lasithi/geo_uniLASITHI_2.shp",verbose = T,p4s = "+proj=tmerc +lat_0=0 +lon_0=24 +k=0.9996 +x_0=500000 +y_0=0 +datum=GGRS87 +units=m +no_defs", use_iconv = FALSE,encoding = "ISO-8859-7")
-
-lasithi2_geomap_wgs84 <- spTransform(lasithi2_geomap, CRS(" +proj=longlat +datum=GGRS87 +no_defs"))
-
-lasithi2_geomap_names <- lasithi2_geomap_wgs84@data %>% mutate(id=as.character(seq(from=0,to=(nrow(lasithi2_geomap_wgs84@data)-1))))
-
-lasithi2_geomap_data <- broom::tidy(lasithi2_geomap_wgs84) %>% left_join(lasithi2_geomap_names,by=c("id"="id"))
-
-over_lasithi2_geomap_data <- over( x = caves_crete_Database_kml_to_txt_shapefile , y = lasithi2_geomap , returnList = T) # This is from rgeos, it contains multiple matches, thats why returnList=T. VERY Important
-
+lasithi2_geomap <- sf::st_read("spatial_data/Crete_geological_map_SHP/lasithi/geo_uniLASITHI_2.shp",
+    options="ENCODING=ISO-8859-7") |> sf::st_set_crs(2100)
+lasithi2_geomap_wgs84 <- sf::st_transform(lasithi2_geomap, crs="WGS84")
+lasithi2_geomap_data <- lasithi2_geomap_wgs84
+over_lasithi2_geomap_data <- sf::st_join(caves_crete_Database_kml_to_txt_shapefile, lasithi2_geomap, join=sf::st_intersects) |>
+    sf::st_drop_geometry()
 
 #all caves underlying geology
+all_rock_types_crete <- bind_rows(
+    sf::st_drop_geometry(rethymno_geomap), sf::st_drop_geometry(irakleio_geomap),
+    sf::st_drop_geometry(chania_geomap), sf::st_drop_geometry(lasithi1_geomap),
+    sf::st_drop_geometry(lasithi2_geomap)
+) |> distinct() |> mutate(color_manual=colorRampPalette(c("orangered2","palegreen3","skyblue1","slateblue1","pink2","sienna3"),space="Lab")( 14 ))
 
-all_rock_types_crete <- rbind(rethymno_geomap@data,irakleio_geomap@data,chania_geomap@data,lasithi1_geomap@data,lasithi2_geomap@data) %>% distinct() %>% mutate(color_manual=colorRampPalette(c("orangered2","palegreen3","skyblue1","slateblue1","pink2","sienna3"),space="Lab")( 14 ))
+crete_caves_over_geomaps <- bind_rows(over_rethymno_geomap_data, over_irakleio_geomap_data,
+    over_chania_geomap_data, over_lasithi1_geomap_data, over_lasithi2_geomap_data)
 
-crete_caves_over_geomaps <- rbind(bind_rows(over_rethymno_geomap_data,.id = "ID"),bind_rows(over_irakleio_geomap_data,.id = "ID"),bind_rows(over_chania_geomap_data,.id = "ID"),bind_rows(over_lasithi1_geomap_data,.id = "ID"),bind_rows(over_lasithi2_geomap_data,.id = "ID"))
-
-crete_caves_geomap_data <-caves_crete_Database_kml_to_txt %>% left_join(crete_caves_over_geomaps,by=c("ID"="ID"))
+crete_caves_geomap_data <- crete_caves_over_geomaps |> distinct()
 
 
 
@@ -2811,19 +2696,19 @@ color_geomaps <- as.character(all_rock_types_crete$color_manual)
 names(color_geomaps) <- all_rock_types_crete$NEW
 
 crete_geomap_data <- ggplot()+
-  geom_polygon(data = chania_geomap_data,aes(x=long, y=lat,group = group,fill=NEW),lwd=0.082, alpha=0.6)+
-  geom_polygon(data = rethymno_geomap_data,aes(x=long, y=lat,group = group,fill=NEW),lwd=0.082, alpha=0.6)+
-  geom_polygon(data = irakleio_geomap_data,aes(x=long, y=lat,group = group,fill=NEW),lwd=0.082, alpha=0.6)+
-  geom_polygon(data = lasithi1_geomap_data,aes(x=long, y=lat,group = group,fill=NEW),lwd=0.082, alpha=0.6)+
-  geom_polygon(data = lasithi2_geomap_data,aes(x=long, y=lat,group = group,fill=NEW),lwd=0.082, alpha=0.6)+
+  geom_sf(data = chania_geomap_data, aes(fill=NEW), lwd=0.082, alpha=0.6)+
+  geom_sf(data = rethymno_geomap_data, aes(fill=NEW), lwd=0.082, alpha=0.6)+
+  geom_sf(data = irakleio_geomap_data, aes(fill=NEW), lwd=0.082, alpha=0.6)+
+  geom_sf(data = lasithi1_geomap_data, aes(fill=NEW), lwd=0.082, alpha=0.6)+
+  geom_sf(data = lasithi2_geomap_data, aes(fill=NEW), lwd=0.082, alpha=0.6)+
   geom_point(data = caves,aes(x=Longitude, y=Latitude,color="Caves"),size = 2.5)+
   ggtitle("Crete Geological map")+
   labs(x="Longitude",y="Latitude")+
   scale_color_manual(name="", values = c("Caves"="red"))+
   scale_fill_manual(name = "Rock type",values =color_geomaps )+
-  scale_x_continuous(breaks = seq(23,26.5,0.5),limits = c(23.2,26.5))+
-  scale_y_continuous(breaks = seq(34.5,36,0.5),limits = c(34.5,36))+
-  coord_map(xlim = c(23.2,26.5), ylim = c(34.5,36))+
+  scale_x_continuous(breaks = seq(23,26.5,0.5))+
+  scale_y_continuous(breaks = seq(34.5,36,0.5))+
+  coord_sf(xlim = c(23.2,26.5), ylim = c(34.5,36))+
   #coord_fixed(ratio = 1)+
   theme_bw()+
   theme(panel.grid.minor = element_blank(), panel.grid.major = element_blank(),legend.text = element_text(size=22),legend.title = element_text(size=14),axis.text = element_text(size=18), axis.title = element_text(size=22))
@@ -2866,119 +2751,96 @@ ggsave("crete_geology_caves_subregion_barplot.jpeg", plot = last_plot(), device 
 #' ### Lithological maps of Crete
 
 #Rethymno
-rethymno_lithomap  <- rgdal::readOGR("Shapefiles/Crete_lithologic_map/rethymno_s/hydroRETHYMNON.shp",verbose = T,p4s = "+proj=tmerc +lat_0=0 +lon_0=24 +k=0.9996 +x_0=500000 +y_0=0 +datum=GGRS87 +units=m +no_defs", use_iconv = FALSE,encoding = "ISO-8859-7")
-
-rethymno_lithomap@data <- rethymno_lithomap@data %>% mutate(ID=rep.int(0,nrow(.)))
-
-rethymno_lithomap_wgs84 <- spTransform(rethymno_lithomap, CRS("+proj=longlat +datum=GGRS87 +no_defs"))
-
-rethymno_lithomap_names <- rethymno_lithomap_wgs84@data %>% mutate(id=as.character(seq(from=0,to=(nrow(rethymno_lithomap_wgs84@data)-1))))
-
-rethymno_lithomap_data <- broom::tidy(rethymno_lithomap_wgs84) %>% left_join(rethymno_lithomap_names,by=c("id"="id"))
-
-over_rethymno_lithomap_data <- over( x = caves_crete_Database_kml_to_txt_shapefile , y = rethymno_lithomap , returnList = T) # This is from rgeos, it contains multiple matches, thats why returnList=T. VERY Important
-
+rethymno_lithomap <- sf::st_read("spatial_data/Crete_lithologic_map/rethymno_s/hydroRETHYMNON.shp",
+    options="ENCODING=ISO-8859-7") |> sf::st_set_crs(2100)
+rethymno_lithomap$ID <- 0L
+rethymno_lithomap_wgs84 <- sf::st_transform(rethymno_lithomap, crs="WGS84")
+rethymno_lithomap_data <- rethymno_lithomap_wgs84
+over_rethymno_lithomap_data <- sf::st_join(caves_crete_Database_kml_to_txt_shapefile, rethymno_lithomap, join=sf::st_intersects) |>
+    sf::st_drop_geometry()
 
 #Irakleio 1
-irakleio_lithomap_1  <- rgdal::readOGR("Shapefiles/Crete_lithologic_map/irakleio/hydroHERAKLION_1.shp",verbose = T,p4s = "+proj=tmerc +lat_0=0 +lon_0=24 +k=0.9996 +x_0=500000 +y_0=0 +datum=GGRS87 +units=m +no_defs", use_iconv = FALSE,encoding = "ISO-8859-7")
-
-irakleio_lithomap_1_wgs84 <- spTransform(irakleio_lithomap_1, CRS(" +proj=longlat +datum=GGRS87 +no_defs"))
-
-irakleio_lithomap_1_names <- irakleio_lithomap_1_wgs84@data %>% mutate(id=as.character(seq(from=0,to=(nrow(irakleio_lithomap_1_wgs84@data)-1))))
-
-irakleio_lithomap_1_data <- broom::tidy(irakleio_lithomap_1_wgs84) %>% left_join(irakleio_lithomap_1_names,by=c("id"="id")) 
-
-over_irakleio_lithomap_1_data <- over( x = caves_crete_Database_kml_to_txt_shapefile , y = irakleio_lithomap_1 , returnList = T) # This is from rgeos, it contains multiple matches, thats why returnList=T. VERY Important
-
+irakleio_lithomap_1 <- sf::st_read("spatial_data/Crete_lithologic_map/irakleio/hydroHERAKLION_1.shp",
+    options="ENCODING=ISO-8859-7") |> sf::st_set_crs(2100)
+irakleio_lithomap_1_wgs84 <- sf::st_transform(irakleio_lithomap_1, crs="WGS84")
+irakleio_lithomap_1_data <- irakleio_lithomap_1_wgs84
+over_irakleio_lithomap_1_data <- sf::st_join(caves_crete_Database_kml_to_txt_shapefile, irakleio_lithomap_1, join=sf::st_intersects) |>
+    sf::st_drop_geometry()
 
 #Irakleio 2
-irakleio_lithomap_2  <- rgdal::readOGR("Shapefiles/Crete_lithologic_map/irakleio/hydroHERAKLION_2.shp",verbose = T,p4s = "+proj=tmerc +lat_0=0 +lon_0=24 +k=0.9996 +x_0=500000 +y_0=0 +datum=GGRS87 +units=m +no_defs", use_iconv = FALSE,encoding = "ISO-8859-7")
-
-irakleio_lithomap_2_wgs84 <- spTransform(irakleio_lithomap_2, CRS(" +proj=longlat +datum=GGRS87 +no_defs"))
-
-irakleio_lithomap_2_names <- irakleio_lithomap_2_wgs84@data %>% mutate(id=as.character(seq(from=0,to=(nrow(irakleio_lithomap_2_wgs84@data)-1))))
-
-irakleio_lithomap_2_data <- broom::tidy(irakleio_lithomap_2_wgs84) %>% left_join(irakleio_lithomap_2_names,by=c("id"="id")) 
-
-over_irakleio_lithomap_2_data <- over( x = caves_crete_Database_kml_to_txt_shapefile , y = irakleio_lithomap_2 , returnList = T) # This is from rgeos, it contains multiple matches, thats why returnList=T. VERY Important
+irakleio_lithomap_2 <- sf::st_read("spatial_data/Crete_lithologic_map/irakleio/hydroHERAKLION_2.shp",
+    options="ENCODING=ISO-8859-7") |> sf::st_set_crs(2100)
+irakleio_lithomap_2_wgs84 <- sf::st_transform(irakleio_lithomap_2, crs="WGS84")
+irakleio_lithomap_2_data <- irakleio_lithomap_2_wgs84
+over_irakleio_lithomap_2_data <- sf::st_join(caves_crete_Database_kml_to_txt_shapefile, irakleio_lithomap_2, join=sf::st_intersects) |>
+    sf::st_drop_geometry()
 
 #Chania 1
-chania_lithomap_1  <- rgdal::readOGR("Shapefiles/Crete_lithologic_map/chania/hydroCHANIA_1.shp",verbose = T,p4s = "+proj=tmerc +lat_0=0 +lon_0=24 +k=0.9996 +x_0=500000 +y_0=0 +datum=GGRS87 +units=m +no_defs", use_iconv = FALSE,encoding = "ISO-8859-7")
-
-chania_lithomap_1_wgs84 <- spTransform(chania_lithomap_1, CRS(" +proj=longlat +datum=GGRS87 +no_defs"))
-
-chania_lithomap_1_names <- chania_lithomap_1_wgs84@data %>% mutate(id=as.character(seq(from=0,to=(nrow(chania_lithomap_1_wgs84@data)-1))))
-
-chania_lithomap_1_data <- broom::tidy(chania_lithomap_1_wgs84) %>% left_join(chania_lithomap_1_names,by=c("id"="id"))
-
-over_chania_lithomap_1_data <- over( x = caves_crete_Database_kml_to_txt_shapefile , y = chania_lithomap_1 , returnList = T) # This is from rgeos, it contains multiple matches, thats why returnList=T. VERY Important
+chania_lithomap_1 <- sf::st_read("spatial_data/Crete_lithologic_map/chania/hydroCHANIA_1.shp",
+    options="ENCODING=ISO-8859-7") |> sf::st_set_crs(2100)
+chania_lithomap_1_wgs84 <- sf::st_transform(chania_lithomap_1, crs="WGS84")
+chania_lithomap_1_data <- chania_lithomap_1_wgs84
+over_chania_lithomap_1_data <- sf::st_join(caves_crete_Database_kml_to_txt_shapefile, chania_lithomap_1, join=sf::st_intersects) |>
+    sf::st_drop_geometry()
 
 #Chania 2
-chania_lithomap_2  <- rgdal::readOGR("Shapefiles/Crete_lithologic_map/chania/hydroCHANIA_2.shp",verbose = T,p4s = "+proj=tmerc +lat_0=0 +lon_0=24 +k=0.9996 +x_0=500000 +y_0=0 +datum=GGRS87 +units=m +no_defs", use_iconv = FALSE,encoding = "ISO-8859-7")
-
-chania_lithomap_2_wgs84 <- spTransform(chania_lithomap_2, CRS(" +proj=longlat +datum=GGRS87 +no_defs"))
-
-chania_lithomap_2_names <- chania_lithomap_2_wgs84@data %>% mutate(id=as.character(seq(from=0,to=(nrow(chania_lithomap_2_wgs84@data)-1))))
-
-chania_lithomap_2_data <- broom::tidy(chania_lithomap_2_wgs84) %>% left_join(chania_lithomap_2_names,by=c("id"="id"))
-
-over_chania_lithomap_2_data <- over( x = caves_crete_Database_kml_to_txt_shapefile , y = chania_lithomap_2 , returnList = T) # This is from rgeos, it contains multiple matches, thats why returnList=T. VERY Important
+chania_lithomap_2 <- sf::st_read("spatial_data/Crete_lithologic_map/chania/hydroCHANIA_2.shp",
+    options="ENCODING=ISO-8859-7") |> sf::st_set_crs(2100)
+chania_lithomap_2_wgs84 <- sf::st_transform(chania_lithomap_2, crs="WGS84")
+chania_lithomap_2_data <- chania_lithomap_2_wgs84
+over_chania_lithomap_2_data <- sf::st_join(caves_crete_Database_kml_to_txt_shapefile, chania_lithomap_2, join=sf::st_intersects) |>
+    sf::st_drop_geometry()
 
 #Lasithi 1
-lasithi_lithomap_1  <- rgdal::readOGR("Shapefiles/Crete_lithologic_map/lasithi/hydroLASSITHI_1.shp",verbose = T,p4s = "+proj=tmerc +lat_0=0 +lon_0=24 +k=0.9996 +x_0=500000 +y_0=0 +datum=GGRS87 +units=m +no_defs", use_iconv = FALSE,encoding = "ISO-8859-7")
-
-lasithi_lithomap_1_wgs84 <- spTransform(lasithi_lithomap_1, CRS(" +proj=longlat +datum=GGRS87 +no_defs"))
-
-lasithi_lithomap_1_names <- lasithi_lithomap_1_wgs84@data %>% mutate(id=as.character(seq(from=0,to=(nrow(lasithi_lithomap_1_wgs84@data)-1))))
-
-lasithi_lithomap_1_data <- broom::tidy(lasithi_lithomap_1_wgs84) %>% left_join(lasithi_lithomap_1_names,by=c("id"="id"))
-
-over_lasithi_lithomap_1_data <- over( x = caves_crete_Database_kml_to_txt_shapefile , y = lasithi_lithomap_1 , returnList = T) # This is from rgeos, it contains multiple matches, thats why returnList=T. VERY Important
+lasithi_lithomap_1 <- sf::st_read("spatial_data/Crete_lithologic_map/lasithi/hydroLASSITHI_1.shp",
+    options="ENCODING=ISO-8859-7") |> sf::st_set_crs(2100)
+lasithi_lithomap_1_wgs84 <- sf::st_transform(lasithi_lithomap_1, crs="WGS84")
+lasithi_lithomap_1_data <- lasithi_lithomap_1_wgs84
+over_lasithi_lithomap_1_data <- sf::st_join(caves_crete_Database_kml_to_txt_shapefile, lasithi_lithomap_1, join=sf::st_intersects) |>
+    sf::st_drop_geometry()
 
 #Lasithi 2
-lasithi_lithomap_2  <- rgdal::readOGR("Shapefiles/Crete_lithologic_map/lasithi/hydroLASSITHI_2.shp",verbose = T,p4s = "+proj=tmerc +lat_0=0 +lon_0=24 +k=0.9996 +x_0=500000 +y_0=0 +datum=GGRS87 +units=m +no_defs", use_iconv = FALSE,encoding = "ISO-8859-7")
-lasithi_lithomap_2@data <- lasithi_lithomap_2@data %>% dplyr::select(-Shape_Area,-Shape_Leng)
-
-
-lasithi_lithomap_2_wgs84 <- spTransform(lasithi_lithomap_2, CRS(" +proj=longlat +datum=GGRS87 +no_defs"))
-
-lasithi_lithomap_2_names <- lasithi_lithomap_2_wgs84@data %>% mutate(id=as.character(seq(from=0,to=(nrow(lasithi_lithomap_2_wgs84@data)-1))))
-
-lasithi_lithomap_2_data <- broom::tidy(lasithi_lithomap_2_wgs84) %>% left_join(lasithi_lithomap_2_names,by=c("id"="id"))
-
-over_lasithi_lithomap_2_data <- over( x = caves_crete_Database_kml_to_txt_shapefile , y = lasithi_lithomap_2 , returnList = T) # This is from rgeos, it contains multiple matches, thats why returnList=T. VERY Important
-
+lasithi_lithomap_2 <- sf::st_read("spatial_data/Crete_lithologic_map/lasithi/hydroLASSITHI_2.shp",
+    options="ENCODING=ISO-8859-7") |> sf::st_set_crs(2100) |>
+    dplyr::select(-Shape_Area, -Shape_Leng)
+lasithi_lithomap_2_wgs84 <- sf::st_transform(lasithi_lithomap_2, crs="WGS84")
+lasithi_lithomap_2_data <- lasithi_lithomap_2_wgs84
+over_lasithi_lithomap_2_data <- sf::st_join(caves_crete_Database_kml_to_txt_shapefile, lasithi_lithomap_2, join=sf::st_intersects) |>
+    sf::st_drop_geometry()
 
 #all caves underlying lithology
+all_lithology_crete <- bind_rows(
+    sf::st_drop_geometry(rethymno_lithomap), sf::st_drop_geometry(irakleio_lithomap_1),
+    sf::st_drop_geometry(irakleio_lithomap_2), sf::st_drop_geometry(chania_lithomap_1),
+    sf::st_drop_geometry(chania_lithomap_2), sf::st_drop_geometry(lasithi_lithomap_1),
+    sf::st_drop_geometry(lasithi_lithomap_2)
+) |> distinct() |> mutate(color_manual=colorRampPalette(c("orangered2","palegreen3","skyblue1","slateblue1","pink2","sienna3"),space="Lab")( 11 ))
 
-all_lithology_crete <- do.call("rbind",list(rethymno_lithomap@data,irakleio_lithomap_1@data,irakleio_lithomap_2@data,chania_lithomap_1@data,chania_lithomap_2@data,lasithi_lithomap_1@data,lasithi_lithomap_2@data)) %>% distinct()  %>% mutate(color_manual=colorRampPalette(c("orangered2","palegreen3","skyblue1","slateblue1","pink2","sienna3"),space="Lab")( 11 ))
+crete_caves_over_lithomaps <- bind_rows(over_rethymno_lithomap_data, over_irakleio_lithomap_1_data,
+    over_irakleio_lithomap_2_data, over_chania_lithomap_1_data, over_chania_lithomap_2_data,
+    over_lasithi_lithomap_1_data, over_lasithi_lithomap_2_data)
 
-
-crete_caves_over_lithomaps <- rbind(bind_rows(over_rethymno_lithomap_data,.id = "ID_cave"),bind_rows(over_irakleio_lithomap_1_data,.id = "ID_cave"),bind_rows(over_irakleio_lithomap_2_data,.id = "ID_cave"),bind_rows(over_chania_lithomap_1_data,.id = "ID_cave"),bind_rows(over_chania_lithomap_2_data,.id = "ID_cave"),bind_rows(over_lasithi_lithomap_1_data,.id = "ID_cave"),bind_rows(over_lasithi_lithomap_2_data,.id = "ID_cave"))
-
-crete_caves_lithology_data <-caves_crete_Database_kml_to_txt %>% left_join(crete_caves_over_lithomaps,by=c("ID"="ID_cave")) %>% na.omit()
-
-
+crete_caves_lithology_data <- crete_caves_over_lithomaps |> distinct() |> na.omit()
 
 color_lith <- as.character(all_lithology_crete$color_manual)
 names(color_lith) <- all_lithology_crete$Code_1
 
 crete_lithomap_data <- ggplot()+
-  geom_polygon(data = chania_lithomap_1_data,aes(x=long, y=lat,group = group,fill=Code_1),lwd=0.082, alpha=0.6)+
-  geom_polygon(data = chania_lithomap_2_data,aes(x=long, y=lat,group = group,fill=Code_1),lwd=0.082, alpha=0.6)+
-  geom_polygon(data = rethymno_lithomap_data,aes(x=long, y=lat,group = group,fill=Code_1),lwd=0.082, alpha=0.6)+
-  geom_polygon(data = irakleio_lithomap_1_data,aes(x=long, y=lat,group = group,fill=Code_1),lwd=0.082, alpha=0.6)+
-  geom_polygon(data = irakleio_lithomap_2_data,aes(x=long, y=lat,group = group,fill=Code_1),lwd=0.082, alpha=0.6)+
-  geom_polygon(data = lasithi_lithomap_1_data,aes(x=long, y=lat,group = group,fill=Code_1),lwd=0.082, alpha=0.6)+
-  geom_polygon(data = lasithi_lithomap_2_data,aes(x=long, y=lat,group = group,fill=Code_1),lwd=0.082, alpha=0.6)+
+  geom_sf(data = chania_lithomap_1_data, aes(fill=Code_1), lwd=0.082, alpha=0.6)+
+  geom_sf(data = chania_lithomap_2_data, aes(fill=Code_1), lwd=0.082, alpha=0.6)+
+  geom_sf(data = rethymno_lithomap_data, aes(fill=Code_1), lwd=0.082, alpha=0.6)+
+  geom_sf(data = irakleio_lithomap_1_data, aes(fill=Code_1), lwd=0.082, alpha=0.6)+
+  geom_sf(data = irakleio_lithomap_2_data, aes(fill=Code_1), lwd=0.082, alpha=0.6)+
+  geom_sf(data = lasithi_lithomap_1_data, aes(fill=Code_1), lwd=0.082, alpha=0.6)+
+  geom_sf(data = lasithi_lithomap_2_data, aes(fill=Code_1), lwd=0.082, alpha=0.6)+
   geom_point(data = caves,aes(x=Longitude, y=Latitude,color="Caves"),size = 2.5)+
   ggtitle("Crete Lithological map")+
   labs(x="Longitude",y="Latitude")+
   scale_color_manual(name="", values = c("Caves"="red"))+
   scale_fill_manual(name = "Rock type",values = color_lith)+
-  scale_x_continuous(breaks = seq(23,26.5,0.5),limits = c(23.2,26.5))+
-  scale_y_continuous(breaks = seq(34.5,36,0.5),limits = c(34.5,36))+
-  coord_map(xlim = c(23.2,26.5), ylim = c(34.5,36))+
+  scale_x_continuous(breaks = seq(23,26.5,0.5))+
+  scale_y_continuous(breaks = seq(34.5,36,0.5))+
+  coord_sf(xlim = c(23.2,26.5), ylim = c(34.5,36))+
   #coord_fixed(ratio = 1)+
   theme_bw()+
   theme(panel.grid.minor = element_blank(), panel.grid.major = element_blank(),legend.text = element_text(size=22),legend.title = element_text(size=22),axis.text = element_text(size=18), axis.title = element_text(size=22))
