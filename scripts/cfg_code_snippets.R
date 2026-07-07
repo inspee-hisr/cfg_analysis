@@ -1147,15 +1147,15 @@ Caves_Database_kml_to_txt$Longitude <- as.numeric(Caves_Database_kml_to_txt$Long
 
 Caves_Database_kml_to_txt$ID <- as.character(seq(1:nrow(Caves_Database_kml_to_txt)))
 
-Caves_Database_kml_to_txt_shapefile_wgs84 <- Caves_Database_kml_to_txt %>% 
-    st_as_sf(coords=c("Longitude", "Latitude"), crs="WGS84")
+Caves_Database_kml_to_txt_shapefile_wgs84 <- Caves_Database_kml_to_txt %>%
+    st_as_sf(coords=c("Longitude", "Latitude"), crs = 4326) |>
+    sf::st_transform(crs = 3035)
 
 
 #coordinates(Caves_Database_kml_to_txt_shapefile_wgs84)<-~Longitude+Latitude
 #proj4string(Caves_Database_kml_to_txt_shapefile_wgs84) <- CRS("+proj=longlat +datum=WGS84")# CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs")  # this is WGS84
 
-Caves_Database_kml_to_txt_shapefile <- Caves_Database_kml_to_txt_shapefile_wgs84 %>% 
-    st_transform( "+proj=longlat +datum=GGRS87 +no_defs")
+Caves_Database_kml_to_txt_shapefile <- Caves_Database_kml_to_txt_shapefile_wgs84
 
 species_occurencies_unique_caves_without <- caves[which((is.na(caves$Latitude))),]
 
@@ -1170,7 +1170,7 @@ species_occurencies_unique_caves_without <- caves[which((is.na(caves$Latitude)))
 
 municipalities_shape_file_original <- st_read("spatial_data/municipalities_shape_file/municipalities_Kallikratis_plan_Greece.shp")
 
-municipalities_shape_file <- municipalities_shape_file_original %>% st_transform("+proj=longlat +datum=GGRS87 +no_defs")
+municipalities_shape_file <- municipalities_shape_file_original %>% st_transform(crs = 3035)
 
 #proj4string(municipalities_shape_file) <- CRS("+proj=longlat +datum=WGS84")# CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs")  # this is WGS84
 
@@ -1212,58 +1212,26 @@ capwords <- function(s, strict = FALSE) {
     sapply(strsplit(s, split = " "), cap, USE.NAMES = !is.null(names(s)))
 }
 
-# All new Natura
+# Natura2000 v32 (2021-12-09) — single authoritative source replacing v30 and older datasets
+# Column names follow EEA standard: SITECODE, SITENAME, SITETYPE (A=SCI, B=SPA, C=SAC/SCISPA)
+# Verify these names match the file on first run
+natura2000 <- sf::st_read("spatial_data/N2000_spatial_GR_2021_12_09_v32/N2000_spatial_GR_2021_12_09_v32.shp") |>
+    sf::st_transform(crs = 3035)
 
-natura2000_new_shapefile_v30  <- sf::st_read("spatial_data/GR_Natura2000_v30/gr_natura_v30.shp")
-natura2000_new_shapefile_v30_wgs84 <- sf::st_transform(natura2000_new_shapefile_v30, crs = "WGS84")
+names_natura2000shapefile <- natura2000 |>
+    sf::st_drop_geometry() |>
+    mutate(
+        CODE = SITECODE,
+        NAME_LATIN_lower_letters = capwords(tolower(SITENAME)),
+        SITETYPE_NATURA = dplyr::case_when(
+            SITETYPE %in% c("A", "SCI")    ~ "SCI",
+            SITETYPE %in% c("B", "SPA")    ~ "SPA",
+            SITETYPE %in% c("C", "SCISPA") ~ "SCISPA",
+            TRUE                            ~ SITETYPE
+        )
+    )
 
-names_natura2000_new_shapefile_v30 <- natura2000_new_shapefile_v30 %>% mutate(id=as.character(seq(from=0,to=(nrow(.)-1))))
-
-natura2000_new_shapefile_v30_dataframe <- names_natura2000_new_shapefile_v30
-
-over_natura_NEW_v30 <- sf::st_join(Caves_Database_kml_to_txt_shapefile_wgs84, natura2000_new_shapefile_v30_wgs84, join = sf::st_intersects)
-
-over_natura_NEW_v30_d <- over_natura_NEW_v30
-
-## Only the new parts
-natura2000_NEW_shapefile <- sf::st_read("spatial_data/Natura2000_2017_NEW_shp/Kaloust/Nees_Natura.shp")
-
-natura2000_NEW_shapefile_INFO <- sf::st_read("spatial_data/Natura2000_2017_NEW_shp/NEES_FINAL_V10.shp")
-
-natura2000_NEW_shapefile_INFO_df <- natura2000_NEW_shapefile_INFO %>% mutate(id=as.character(seq(from=0,to=(nrow(.)-1))))
-
-natura2000_NEW_shapefile <-  natura2000_NEW_shapefile %>% mutate(id=as.character(seq(from=0,to=(nrow(.)-1)))) %>% left_join(natura2000_NEW_shapefile_INFO_df, by=c("id"="id")) %>% dplyr::select(-c(descriptio,timestamp,begin,end,altitudeMo,tessellate,extrude,visibility,drawOrder,icon))
-
-natura2000_NEW_shapefile <- sf::st_set_crs(natura2000_NEW_shapefile, 4326)
-
-
-# shapefiles to dataframes for plotting
-## New Natura
-#natura2000_NEW_shapefile_names <- natura2000_NEW_shapefile@data %>% mutate(id=as.character(seq(from=0,to=(nrow(.)-1))))
-
-#natura2000_NEW_shapefile_dataframe <- broom::tidy(natura2000_NEW_shapefile) %>% left_join(., natura2000_NEW_shapefile_names, by=c("id"="id"))
-
-##### Natura 2000
-natura2000shapefile <-  sf::st_read("spatial_data/natura2000shapefile/natura2000shapefile.shp")
-
-natura2000shapefile <- sf::st_set_crs(natura2000shapefile, 4326)
-
-natura2000shapefile_data <- natura2000shapefile %>% dplyr::select(CODE,NAME_LATIN)
-### Katafygia agrias zois
-#katafygia_agrias_zwhs <- maptools::readShapePoly("katafygia_agrias_zwhs/katafygia_agrias_zwhs",verbose=TRUE)
-
-#proj4string(katafygia_agrias_zwhs) <- CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs")  # this is WGS84
-
-### Natura 2000 TIDY
-names_natura2000shapefile <- natura2000shapefile %>%
-    mutate(id=as.character(seq(from=0,to=(nrow(.)-1)))) %>%
-    mutate(NAME_LATIN_lower_letters=capwords(tolower(NAME_LATIN))) %>%
-    mutate(SITETYPE_NATURA=ifelse(is.na(SITETYPE), NA_character_,
-                                  ifelse(SITETYPE=="SPA","Special Protection Area",
-                                         ifelse(SITETYPE=="SCI","Special Area of Conservation ",
-                                                "Special Protection Area - Special Area of Conservation"))))
-
-natura2000shapefile_dataframe <- natura2000shapefile %>% left_join(., names_natura2000shapefile, by=c("id"="id"))
+natura2000shapefile_dataframe <- natura2000
 
 
 ####
@@ -1282,22 +1250,27 @@ katafygia_agrias_zwhs_dataframe <- katafygia_agrias_zwhs
 #%>% left_join(., katafygia_agrias_zwhs_names, by=c("id"="id"))
 
 
-### New Natura Over
-over_NEW_natura <- st_intersection(Caves_Database_kml_to_txt_shapefile_wgs84, natura2000_NEW_shapefile)
+### Natura2000 v32 spatial join — replaces old v30, Nees_Natura, and natura2000shapefile joins
+over_natura_v32 <- sf::st_join(Caves_Database_kml_to_txt_shapefile_wgs84,
+                                natura2000,
+                                join = sf::st_intersects) |>
+    sf::st_drop_geometry()
 
-caves_in_over_NEW_natura <- over_NEW_natura %>% mutate(ID=as.character(seq(1:nrow(over_NEW_natura)))) %>% filter(SITE_TYPE=="SCI") %>% mutate(TYPE=gsub(pattern = "TROP",replacement = "Modified:",x =TYPE),Name_New_NATURA2=gsub(pattern = "TROP ",replacement = "",x = Name)) %>% left_join(Caves_Database_kml_to_txt,by=c("ID"="ID")) %>% dplyr::select(Cave_ID,TYPE,SITE_TYPE,Name_New_NATURA2) %>% left_join(natura2000shapefile_data, by=c("Name_New_NATURA2"="CODE")) %>% dplyr::select(-c(Name_New_NATURA2))
+over_natura_NEW_v30_d <- over_natura_v32   # v32 replaces v30; downstream code uses SITECODE column
 
-colnames(caves_in_over_NEW_natura) <- c("Cave_ID","CODE_NEW_NATURA","SITETYPE_NEW_NATURA", "NAME_LATIN_NEW_NATURA")
+caves_in_over_natura <- over_natura_v32 |>
+    dplyr::select(Cave_ID, SITECODE, SITETYPE, SITENAME)
 
-### over NATURA
+colnames(caves_in_over_natura) <- c("Cave_ID","CODE_NATURA","SITETYPE_NATURA","NAME_LATIN_NATURA")
 
-over_natura <- st_intersection(Caves_Database_kml_to_txt_shapefile_wgs84 , natura2000shapefile)
-
-# create file with the old and new natura2000 areas combined
-
-caves_in_over_natura <- over_natura %>% mutate(ID=as.character(seq(1:nrow(over_natura)))) %>% left_join(Caves_Database_kml_to_txt,by=c("ID"="ID")) %>% dplyr::select(Cave_ID,CODE,SITETYPE,NAME_LATIN)
-
-colnames(caves_in_over_natura) <- c("Cave_ID","CODE_NATURA","SITETYPE_NATURA", "NAME_LATIN_NATURA")
+# Old "Nees_Natura" dataset has been removed; v32 is the single source.
+# Empty placeholder keeps downstream joins from failing.
+caves_in_over_NEW_natura <- tibble(
+    Cave_ID               = integer(),
+    CODE_NEW_NATURA       = character(),
+    SITETYPE_NEW_NATURA   = character(),
+    NAME_LATIN_NEW_NATURA = character()
+)
 
 ### over Katafygia agrias zwis
 
@@ -1377,7 +1350,7 @@ ggsave("caves_per_altitude.png", plot = last_plot(), device = "png",width = 20,h
 #' ## Species and caves per region
 greece_level_2_shape <- sf::st_read("spatial_data/gadm41_GRC_shp/gadm41_GRC_2.shp")
 
-greece_level_2 <- sf::st_transform(greece_level_2_shape, crs = "WGS84")
+greece_level_2 <- sf::st_transform(greece_level_2_shape, crs = 3035)
 
 greece_regions <- c("Athos","East Macedonia and Thrace","Attica ","West Greece","West Macedonia","Ionian Islands ","Epirus ","Central Macedonia","Crete","South Aegean","Peloponnese ","Central Greece ","Thessaly","North Aegean")
 
@@ -1392,7 +1365,7 @@ species_Region$regions <- greece_regions
 
 # https://www.r-bloggers.com/using-r-working-with-geospatial-data-and-ggplot2/
 
-greece_level_2 <- sf::st_transform(greece_level_2, crs = "WGS84")
+greece_level_2 <- sf::st_transform(greece_level_2, crs = 3035)
 
 greece_level_2_dataframe <- greece_level_2 |>
     left_join(caves_Region, by=c("NAME_2"="regions")) |>
@@ -1550,11 +1523,11 @@ ggsave("map_greece_plot_lines.png", plot = map_greece_plot_lines, device = "png"
 ## https://gis.stackexchange.com/questions/124295/convert-coordinates-from-readshapepoly-in-r-to-long-lat-coordinates ## sotireeees
 
 grid_100k_shapefile <- sf::st_read("spatial_data/Greece_shapefile/gr_100km.shp")
-grid_100k_shapefile_wgs84 <- sf::st_transform(grid_100k_shapefile, crs = "WGS84") |>
+grid_100k_shapefile_wgs84 <- sf::st_transform(grid_100k_shapefile, crs = 3035) |>
     rename(CellCode=CELLCODE, EofOrigin=EOFORIGIN, NofOrigin=NOFORIGIN)
 
 grid_10k_shapefile <- sf::st_read("spatial_data/Greece_shapefile/gr_10km.shp")
-grid_10k_shapefile_wgs84 <- sf::st_transform(grid_10k_shapefile, crs = "WGS84") |>
+grid_10k_shapefile_wgs84 <- sf::st_transform(grid_10k_shapefile, crs = 3035) |>
     rename(CellCode=CELLCODE, EofOrigin=EOFORIGIN, NofOrigin=NOFORIGIN)
 
 grid_10k_shapefile_wgs84_data <- grid_10k_shapefile_wgs84 |> dplyr::select(-EofOrigin, -NofOrigin)
@@ -1574,7 +1547,7 @@ dim(grid_10k_shapefile_wgs84)
 ## ---- warning=FALSE, message=FALSE, echo=FALSE---------------------------
 
 # caves over polygon
-Caves_Database_kml_to_txt_shapefile_wgs84 <- sf::st_transform(Caves_Database_kml_to_txt_shapefile, crs = "WGS84")
+Caves_Database_kml_to_txt_shapefile_wgs84 <- sf::st_transform(Caves_Database_kml_to_txt_shapefile, crs = 3035)
 
 
 ### over grid — find which 10km cell each cave falls in
@@ -1733,7 +1706,7 @@ ggplot()+
 
 YPOGEIA_YDATIKA_SYSTIMATA <- sf::st_read("spatial_data/YPOGEIA_YDATIKA_SYSTIMATA/GR_GWB_50K_GREECE.shp")
 
-YPOGEIA_YDATIKA_SYSTIMATA_wgs84 <- sf::st_transform(YPOGEIA_YDATIKA_SYSTIMATA, crs = "WGS84")
+YPOGEIA_YDATIKA_SYSTIMATA_wgs84 <- sf::st_transform(YPOGEIA_YDATIKA_SYSTIMATA, crs = 3035)
 
 YPOGEIA_YDATIKA_SYSTIMATA_wgs84_data <- YPOGEIA_YDATIKA_SYSTIMATA_wgs84
 
@@ -2632,48 +2605,49 @@ caves_crete_Database_kml_to_txt$Longitude <- as.numeric(caves_crete_Database_kml
 caves_crete_Database_kml_to_txt$ID <- as.character(seq(1:nrow(caves_crete_Database_kml_to_txt)))
 
 caves_crete_Database_kml_to_txt_shapefile_wgs84 <- caves_crete_Database_kml_to_txt |>
-    sf::st_as_sf(coords=c("Longitude","Latitude"), crs="WGS84", remove=FALSE)
+    sf::st_as_sf(coords=c("Longitude","Latitude"), crs = 4326, remove=FALSE) |>
+    sf::st_transform(crs = 3035)
 
-caves_crete_Database_kml_to_txt_shapefile <- sf::st_transform(caves_crete_Database_kml_to_txt_shapefile_wgs84, crs=2100)
+caves_crete_Database_kml_to_txt_shapefile <- caves_crete_Database_kml_to_txt_shapefile_wgs84
 
 #' ### Geological maps of Crete
 #Rethymno
 rethymno_geomap <- sf::st_read("spatial_data/Crete_geological_map_SHP/rethymno/geo_uniRETHYMNON.shp",
-    options="ENCODING=ISO-8859-7") |> sf::st_set_crs(2100)
-rethymno_geomap_wgs84 <- sf::st_transform(rethymno_geomap, crs="WGS84")
-rethymno_geomap_data <- rethymno_geomap_wgs84
+    options="ENCODING=ISO-8859-7") |> sf::st_set_crs(2100) |> sf::st_transform(crs = 3035)
+rethymno_geomap_wgs84 <- rethymno_geomap
+rethymno_geomap_data <- rethymno_geomap
 over_rethymno_geomap_data <- sf::st_join(caves_crete_Database_kml_to_txt_shapefile, rethymno_geomap, join=sf::st_intersects) |>
     sf::st_drop_geometry()
 
 #Irakleio
 irakleio_geomap <- sf::st_read("spatial_data/Crete_geological_map_SHP/irakleio/geo_uniHERAKLION.shp",
-    options="ENCODING=ISO-8859-7") |> sf::st_set_crs(2100)
-irakleio_geomap_wgs84 <- sf::st_transform(irakleio_geomap, crs="WGS84")
-irakleio_geomap_data <- irakleio_geomap_wgs84
+    options="ENCODING=ISO-8859-7") |> sf::st_set_crs(2100) |> sf::st_transform(crs = 3035)
+irakleio_geomap_wgs84 <- irakleio_geomap
+irakleio_geomap_data <- irakleio_geomap
 over_irakleio_geomap_data <- sf::st_join(caves_crete_Database_kml_to_txt_shapefile, irakleio_geomap, join=sf::st_intersects) |>
     sf::st_drop_geometry()
 
 #Chania
 chania_geomap <- sf::st_read("spatial_data/Crete_geological_map_SHP/chania/geo_uniCHANIA.shp",
-    options="ENCODING=ISO-8859-7") |> sf::st_set_crs(2100)
-chania_geomap_wgs84 <- sf::st_transform(chania_geomap, crs="WGS84")
-chania_geomap_data <- chania_geomap_wgs84
+    options="ENCODING=ISO-8859-7") |> sf::st_set_crs(2100) |> sf::st_transform(crs = 3035)
+chania_geomap_wgs84 <- chania_geomap
+chania_geomap_data <- chania_geomap
 over_chania_geomap_data <- sf::st_join(caves_crete_Database_kml_to_txt_shapefile, chania_geomap, join=sf::st_intersects) |>
     sf::st_drop_geometry()
 
 # lasithi
 lasithi1_geomap <- sf::st_read("spatial_data/Crete_geological_map_SHP/lasithi/geo_uniLASITHI_1.shp",
-    options="ENCODING=ISO-8859-7") |> sf::st_set_crs(2100)
-lasithi1_geomap_wgs84 <- sf::st_transform(lasithi1_geomap, crs="WGS84")
-lasithi1_geomap_data <- lasithi1_geomap_wgs84
+    options="ENCODING=ISO-8859-7") |> sf::st_set_crs(2100) |> sf::st_transform(crs = 3035)
+lasithi1_geomap_wgs84 <- lasithi1_geomap
+lasithi1_geomap_data <- lasithi1_geomap
 over_lasithi1_geomap_data <- sf::st_join(caves_crete_Database_kml_to_txt_shapefile, lasithi1_geomap, join=sf::st_intersects) |>
     sf::st_drop_geometry()
 
 #2
 lasithi2_geomap <- sf::st_read("spatial_data/Crete_geological_map_SHP/lasithi/geo_uniLASITHI_2.shp",
-    options="ENCODING=ISO-8859-7") |> sf::st_set_crs(2100)
-lasithi2_geomap_wgs84 <- sf::st_transform(lasithi2_geomap, crs="WGS84")
-lasithi2_geomap_data <- lasithi2_geomap_wgs84
+    options="ENCODING=ISO-8859-7") |> sf::st_set_crs(2100) |> sf::st_transform(crs = 3035)
+lasithi2_geomap_wgs84 <- lasithi2_geomap
+lasithi2_geomap_data <- lasithi2_geomap
 over_lasithi2_geomap_data <- sf::st_join(caves_crete_Database_kml_to_txt_shapefile, lasithi2_geomap, join=sf::st_intersects) |>
     sf::st_drop_geometry()
 
@@ -2752,59 +2726,59 @@ ggsave("crete_geology_caves_subregion_barplot.jpeg", plot = last_plot(), device 
 
 #Rethymno
 rethymno_lithomap <- sf::st_read("spatial_data/Crete_lithologic_map/rethymno_s/hydroRETHYMNON.shp",
-    options="ENCODING=ISO-8859-7") |> sf::st_set_crs(2100)
+    options="ENCODING=ISO-8859-7") |> sf::st_set_crs(2100) |> sf::st_transform(crs = 3035)
 rethymno_lithomap$ID <- 0L
-rethymno_lithomap_wgs84 <- sf::st_transform(rethymno_lithomap, crs="WGS84")
-rethymno_lithomap_data <- rethymno_lithomap_wgs84
+rethymno_lithomap_wgs84 <- rethymno_lithomap
+rethymno_lithomap_data <- rethymno_lithomap
 over_rethymno_lithomap_data <- sf::st_join(caves_crete_Database_kml_to_txt_shapefile, rethymno_lithomap, join=sf::st_intersects) |>
     sf::st_drop_geometry()
 
 #Irakleio 1
 irakleio_lithomap_1 <- sf::st_read("spatial_data/Crete_lithologic_map/irakleio/hydroHERAKLION_1.shp",
-    options="ENCODING=ISO-8859-7") |> sf::st_set_crs(2100)
-irakleio_lithomap_1_wgs84 <- sf::st_transform(irakleio_lithomap_1, crs="WGS84")
-irakleio_lithomap_1_data <- irakleio_lithomap_1_wgs84
+    options="ENCODING=ISO-8859-7") |> sf::st_set_crs(2100) |> sf::st_transform(crs = 3035)
+irakleio_lithomap_1_wgs84 <- irakleio_lithomap_1
+irakleio_lithomap_1_data <- irakleio_lithomap_1
 over_irakleio_lithomap_1_data <- sf::st_join(caves_crete_Database_kml_to_txt_shapefile, irakleio_lithomap_1, join=sf::st_intersects) |>
     sf::st_drop_geometry()
 
 #Irakleio 2
 irakleio_lithomap_2 <- sf::st_read("spatial_data/Crete_lithologic_map/irakleio/hydroHERAKLION_2.shp",
-    options="ENCODING=ISO-8859-7") |> sf::st_set_crs(2100)
-irakleio_lithomap_2_wgs84 <- sf::st_transform(irakleio_lithomap_2, crs="WGS84")
-irakleio_lithomap_2_data <- irakleio_lithomap_2_wgs84
+    options="ENCODING=ISO-8859-7") |> sf::st_set_crs(2100) |> sf::st_transform(crs = 3035)
+irakleio_lithomap_2_wgs84 <- irakleio_lithomap_2
+irakleio_lithomap_2_data <- irakleio_lithomap_2
 over_irakleio_lithomap_2_data <- sf::st_join(caves_crete_Database_kml_to_txt_shapefile, irakleio_lithomap_2, join=sf::st_intersects) |>
     sf::st_drop_geometry()
 
 #Chania 1
 chania_lithomap_1 <- sf::st_read("spatial_data/Crete_lithologic_map/chania/hydroCHANIA_1.shp",
-    options="ENCODING=ISO-8859-7") |> sf::st_set_crs(2100)
-chania_lithomap_1_wgs84 <- sf::st_transform(chania_lithomap_1, crs="WGS84")
-chania_lithomap_1_data <- chania_lithomap_1_wgs84
+    options="ENCODING=ISO-8859-7") |> sf::st_set_crs(2100) |> sf::st_transform(crs = 3035)
+chania_lithomap_1_wgs84 <- chania_lithomap_1
+chania_lithomap_1_data <- chania_lithomap_1
 over_chania_lithomap_1_data <- sf::st_join(caves_crete_Database_kml_to_txt_shapefile, chania_lithomap_1, join=sf::st_intersects) |>
     sf::st_drop_geometry()
 
 #Chania 2
 chania_lithomap_2 <- sf::st_read("spatial_data/Crete_lithologic_map/chania/hydroCHANIA_2.shp",
-    options="ENCODING=ISO-8859-7") |> sf::st_set_crs(2100)
-chania_lithomap_2_wgs84 <- sf::st_transform(chania_lithomap_2, crs="WGS84")
-chania_lithomap_2_data <- chania_lithomap_2_wgs84
+    options="ENCODING=ISO-8859-7") |> sf::st_set_crs(2100) |> sf::st_transform(crs = 3035)
+chania_lithomap_2_wgs84 <- chania_lithomap_2
+chania_lithomap_2_data <- chania_lithomap_2
 over_chania_lithomap_2_data <- sf::st_join(caves_crete_Database_kml_to_txt_shapefile, chania_lithomap_2, join=sf::st_intersects) |>
     sf::st_drop_geometry()
 
 #Lasithi 1
 lasithi_lithomap_1 <- sf::st_read("spatial_data/Crete_lithologic_map/lasithi/hydroLASSITHI_1.shp",
-    options="ENCODING=ISO-8859-7") |> sf::st_set_crs(2100)
-lasithi_lithomap_1_wgs84 <- sf::st_transform(lasithi_lithomap_1, crs="WGS84")
-lasithi_lithomap_1_data <- lasithi_lithomap_1_wgs84
+    options="ENCODING=ISO-8859-7") |> sf::st_set_crs(2100) |> sf::st_transform(crs = 3035)
+lasithi_lithomap_1_wgs84 <- lasithi_lithomap_1
+lasithi_lithomap_1_data <- lasithi_lithomap_1
 over_lasithi_lithomap_1_data <- sf::st_join(caves_crete_Database_kml_to_txt_shapefile, lasithi_lithomap_1, join=sf::st_intersects) |>
     sf::st_drop_geometry()
 
 #Lasithi 2
 lasithi_lithomap_2 <- sf::st_read("spatial_data/Crete_lithologic_map/lasithi/hydroLASSITHI_2.shp",
     options="ENCODING=ISO-8859-7") |> sf::st_set_crs(2100) |>
-    dplyr::select(-Shape_Area, -Shape_Leng)
-lasithi_lithomap_2_wgs84 <- sf::st_transform(lasithi_lithomap_2, crs="WGS84")
-lasithi_lithomap_2_data <- lasithi_lithomap_2_wgs84
+    dplyr::select(-Shape_Area, -Shape_Leng) |> sf::st_transform(crs = 3035)
+lasithi_lithomap_2_wgs84 <- lasithi_lithomap_2
+lasithi_lithomap_2_data <- lasithi_lithomap_2
 over_lasithi_lithomap_2_data <- sf::st_join(caves_crete_Database_kml_to_txt_shapefile, lasithi_lithomap_2, join=sf::st_intersects) |>
     sf::st_drop_geometry()
 

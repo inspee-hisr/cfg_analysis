@@ -1,6 +1,8 @@
 #!/usr/bin/env Rscript
 
+.libPaths(c("/workspace/.Rlib", .libPaths()))
 library(sf)
+library(units)
 library(ggplot2)
 library(ggnewscale)
 library(tidyr)
@@ -12,32 +14,46 @@ source("scripts/cfg_load_data.R")
 
 print("Loading spatial data")
 
-greece_regions <- sf::st_read("spatial_data/gadm41_GRC_shp/gadm41_GRC_2.shp")
+greece_regions <- sf::st_read("spatial_data/gadm41_GRC_shp/gadm41_GRC_2.shp", quiet = TRUE) |>
+    sf::st_transform(crs = 3035)
+greece_municipalities <- sf::st_read("spatial_data/gadm41_GRC_shp/gadm41_GRC_3.shp", quiet = TRUE) |>
+    sf::st_transform(crs = 3035)
+
+# Natura2000 v32 (2021-12-09)
+natura2000 <- sf::st_read("spatial_data/N2000_spatial_GR_2021_12_09_v32/N2000_spatial_GR_2021_12_09_v32.shp",
+                           quiet = TRUE) |>
+    sf::st_transform(crs = 3035)
+
+# Geoparks
+geopark <- sf::st_read("spatial_data/geopark_borders_mod/geopark_borders_mod.shp", quiet = TRUE) |>
+    sf::st_transform(crs = 3035)
+
 ####################### caves sf ###################
 caves_sf <- caves |>
     filter(!(is.na(Longitude))) |>
     st_as_sf(coords=c("Longitude","Latitude"),
              remove=F,
-             crs="WGS84")
+             crs = 4326) |>
+    sf::st_transform(crs = 3035)
 
 locations_inland <- census_all_species_all_caves |>
     filter(!(is.na(Longitude))) |>
     st_as_sf(coords=c("Longitude","Latitude"),
              remove=F,
-             crs="WGS84")
-#st_write(caves_sf, "results/caves.geojson", delete_dsn = TRUE)
+             crs = 4326) |>
+    sf::st_transform(crs = 3035)
 
-grid_10k_shapefile_wgs84 <- st_read("spatial_data/Greece_shapefile/gr_10km.shp") |>
-    st_transform(., crs="WGS84")
+grid_10k <- st_read("spatial_data/Greece_shapefile/gr_10km.shp", quiet = TRUE) |>
+    st_transform(crs = 3035)
 
 #grid_10k_shapefile_dataframe <- broom::tidy(grid_10k_shapefile_wgs84)
 
-locations_10_grid_species <- st_join(grid_10k_shapefile_wgs84, locations_inland, left=F) |>
+locations_10_grid_species <- st_join(grid_10k, locations_inland, left=F) |>
     distinct(geometry,CELLCODE, Latitude, Longitude, Species) |>
     group_by(geometry,CELLCODE) |>
     summarise(n_species=n(),.groups="keep")
 
-locations_10_grid_samples <- st_join(grid_10k_shapefile_wgs84, locations_inland, left=F) |>
+locations_10_grid_samples <- st_join(grid_10k, locations_inland, left=F) |>
     distinct(geometry,CELLCODE, Latitude, Longitude) |>
     group_by(geometry,CELLCODE) |>
     summarise(n_samples=n(),.groups="keep")
@@ -62,19 +78,15 @@ grid_10k_species_abundance_plot <- ggplot()+
                                      "gray10",
                                      "gray0"),
                          name="Number of species")+
-    geom_point(data = caves,
-               aes(x=Longitude,
-                   y=Latitude,
-                   color=Cave_Type),
-               size = 0.9)+
-    labs(x="Longitude",y="Latitude")+
+    geom_sf(data = caves_sf,
+            aes(color=Cave_Type),
+            size = 0.9)+
+    labs(x="Easting (m, EPSG:3035)",y="Northing (m, EPSG:3035)")+
     ggtitle("Species richness")+
     scale_color_manual(name="Cave Types",
                        values = c("Natural"="red",
                                   "Artificial"="black",
-                                  "Natural Modified"="orange"))+  
-    scale_x_continuous(breaks = seq(19,30,1),limits = c(20,30))+
-    scale_y_continuous(breaks = seq(35,42,1),limits = c(34.5,42))+
+                                  "Natural Modified"="orange"))+
     theme_bw()+
     guides(colour = guide_legend(order = 1), 
               fill = guide_legend(order = 2))+
@@ -159,3 +171,106 @@ length(unique(census_araneae_long$Reference_ID))
 census_araneae_long |> distinct(Cave_ID,Species) |> nrow()
 
 write_delim(census_araneae_long, "results/cfg_araneae_data_long.tsv",delim="\t")
+
+
+################################## islands #############################
+###
+# Explode multipolygons into individual polygons
+gadm_single <- greece_municipalities |>
+    st_make_valid() |>
+    st_cast("POLYGON", do_split = TRUE) |>
+    mutate(id = row_number())  # Add unique IDs to track original geometries
+# Check connectivity of polygons
+
+#connectivity <- st_relate(gadm_single, gadm_single, pattern = "****0****")
+connectivity <- st_intersects(gadm_single, gadm_single)
+
+# Determine islands (features with no neighbors are islands)
+gadm_single$is_island <- sapply(connectivity, function(x) length(x) == 1)
+
+greece_islands <- gadm_single |>
+  mutate(is_island= ifelse(NAME_2 %in% c("North Aegean","Crete","South Aegean","Ionian Islands"),TRUE,is_island)) |>
+  mutate(region_type = ifelse(is_island, "Island", "Mainland")) |>
+  dplyr::select(is_island,region_type,NAME_2, NAME_3,id) |>
+  mutate(area_island=round(set_units(st_area(geometry),km^2),4)) 
+
+# Crete and Evia ara the only islands in greece that has multiple municipalities
+# so the mainland of Crete is filtered to join all municipalities
+# and keep satelite islands separate.
+crete_only <- greece_islands |>
+    filter(NAME_2=="Crete") |>
+    arrange(desc(area_island)) |>
+    filter(area_island>set_units(100,km^2))
+
+crete_only_one <- st_union(crete_only) |>
+    sf::st_as_sf() |>
+    rename("geometry"="x") |>
+    mutate(is_island=TRUE, region_type="Island", NAME_2="Crete", NAME_3="All Crete", id=0) |> 
+    mutate(area_island=round(set_units(st_area(geometry),km^2),4)) 
+
+# Evia
+evia <- greece_regions |> filter(NAME_2=="Central Greece") |>
+    st_make_valid() |>
+    st_cast("POLYGON", do_split = TRUE) |>
+    mutate(id = row_number()) |> 
+    mutate(area_island=round(set_units(st_area(geometry),km^2),4)) |>
+    filter(area_island>set_units(1000,km^2)) |>
+    filter(area_island<set_units(4000,km^2)) |>
+    dplyr::select(area_island) |>
+    mutate(is_island=TRUE, region_type="Island", NAME_2="Central Greece", NAME_3="Evia", id=1000) 
+
+# first the crete mainland polygons are excluded and then the whole crete is
+# binded to the other
+greece_islands_final <- greece_islands |>
+    filter(!(id %in% crete_only$id)) |>
+    bind_rows(crete_only_one) |>
+    bind_rows(evia)
+
+islands_gr <- ggplot() +
+  geom_sf(data = greece_islands_final, mapping = aes(fill = region_type)) +
+  theme_bw() +
+  labs(title = "Islands vs Mainland in GADM Data")
+
+ggsave("islands_gr.png",
+       plot = islands_gr,
+       device = "png",
+       width = 20,
+       height = 20,
+       units = "cm",
+       dpi = 300,
+       path = "plots/")
+
+############ island species analysis (all species) ##########
+
+# Join all species locations to island/mainland polygons
+all_species_islands <- sf::st_join(locations_inland,
+                                   greece_islands_final,
+                                   join = sf::st_intersects) |>
+    sf::st_drop_geometry() |>
+    distinct(Cave_ID, Species, region_type, NAME_2, NAME_3, is_island) |>
+    filter(!is.na(region_type))
+
+# Classify each species by whether it occurs on islands, mainland, or both
+species_island_mainland <- all_species_islands |>
+    group_by(Species) |>
+    summarise(
+        on_island   = any(region_type == "Island"),
+        on_mainland = any(region_type == "Mainland"),
+        .groups = "drop"
+    ) |>
+    mutate(distribution = dplyr::case_when(
+        on_island & !on_mainland ~ "Island only",
+        !on_island & on_mainland ~ "Mainland only",
+        on_island & on_mainland  ~ "Both"
+    ))
+
+# Cave-level island summary
+caves_island_summary <- all_species_islands |>
+    group_by(Cave_ID, NAME_2, NAME_3, region_type, is_island) |>
+    summarise(n_species = n_distinct(Species), .groups = "drop")
+
+write_delim(all_species_islands,      "results/cfg_island_species.tsv",      delim = "\t")
+write_delim(species_island_mainland,  "results/cfg_species_distribution.tsv", delim = "\t")
+write_delim(caves_island_summary,     "results/cfg_caves_island_summary.tsv", delim = "\t")
+
+

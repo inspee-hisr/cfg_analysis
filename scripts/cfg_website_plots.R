@@ -1,5 +1,6 @@
 #!/usr/bin/env Rscript
 
+.libPaths(c("/workspace/.Rlib", .libPaths()))
 library(sf)
 library(ggplot2)
 library(tidyr)
@@ -14,9 +15,13 @@ caves_sf <- caves |>
     filter(!(is.na(Longitude))) |>
     st_as_sf(coords=c("Longitude","Latitude"),
              remove=F,
-             crs="WGS84")
+             crs = 4326) |>
+    sf::st_transform(crs = 3035)
 
-st_write(caves_sf, "results/caves.geojson", delete_dsn = TRUE, append=FALSE)
+# GeoJSON requires WGS84 (EPSG:4326) per RFC 7946
+caves_sf |>
+    sf::st_transform(crs = 4326) |>
+    st_write("results/caves.geojson", delete_dsn = TRUE, append=FALSE)
 
 ######################## main website plots ###########################
 
