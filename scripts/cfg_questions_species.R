@@ -14,6 +14,7 @@ library(RColorBrewer)
 library(scales)
 
 source("scripts/cfg_load_data.R")
+source("scripts/cfg_plot_style.R")
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 save_tsv <- function(df, name) {
@@ -25,19 +26,6 @@ save_plot <- function(p, name, w = 18, h = 12) {
            plot = p, width = w, height = h, units = "cm", dpi = 300)
     invisible(p)
 }
-theme_cfg <- function(base = 11) {
-    theme_bw(base_size = base) +
-    theme(panel.grid.minor  = element_blank(),
-          panel.grid.major  = element_blank(),
-          plot.title        = element_text(face = "bold"),
-          plot.subtitle     = element_text(colour = "grey40", size = base - 1))
-}
-clf_colours <- c(
-    "Troglobiont" = "#1f78b4", "Stygobiont"  = "#33a02c",
-    "Troglophile" = "#a6cee3", "Stygophile"  = "#b2df8a",
-    "Trogloxene"  = "#ff7f00", "Stygoxene"   = "#fdbf6f",
-    "Accidental"  = "#e31a1c"
-)
 
 cat("\n================================================================\n")
 cat("LOADING SPATIAL DATA FOR CHOROPLETH MAPS\n")
@@ -114,7 +102,7 @@ p <- ggplot(sp_per_order |>
     coord_flip() +
     labs(title    = "Species by order and ecological classification (top 15 orders)",
          x = NULL, y = "Number of species") +
-    theme_cfg() + theme(legend.position = "bottom")
+    theme_cfg_bar() + theme(legend.position = "bottom")
 save_plot(p, "q_species_taxonomy", w = 22, h = 16)
 
 ################################################################
@@ -145,7 +133,7 @@ p <- ggplot(clf_breakdown |>
     coord_flip() +
     labs(title    = "Species by ecological classification",
          x = NULL, y = "Number of species") +
-    theme_cfg()
+    theme_cfg_bar()
 save_plot(p, "q_species_classification", w = 18, h = 10)
 
 # Q: Single-cave species
@@ -171,14 +159,14 @@ p <- single_cave |>
     mutate(Order = fct_reorder(Order, n)) |>
     ggplot(aes(x = Order, y = n, fill = Order)) +
     geom_col(width = 0.75, show.legend = FALSE) +
-    geom_text(aes(label = n), hjust = -0.2, size = 3.5) +
-    scale_fill_brewer(palette = "Set2") +
-    scale_y_continuous(expand = expansion(mult = c(0, 0.15))) +
+    geom_text(aes(label = n), hjust = -0.2, size = 3.5, colour = "#333333") +
+    scale_fill_viridis_d(option = "D", direction = -1) +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.35))) +
     coord_flip() +
     labs(title    = "Single-cave species by order (top 15)",
          subtitle = paste0(nrow(single_cave), " species recorded in only 1 cave"),
          x = NULL, y = "Number of species") +
-    theme_cfg()
+    theme_cfg_bar()
 save_plot(p, "q_species_singlecave", w = 18, h = 12)
 
 # Q: Stygobiont species with most occurrences
@@ -201,13 +189,13 @@ p <- ggplot(stygo_occ |> head(20) |>
                 mutate(Species = fct_reorder(Species, n_caves)),
             aes(x = Species, y = n_caves, fill = Order)) +
     geom_col(width = 0.75) +
-    geom_text(aes(label = n_caves), hjust = -0.2, size = 3) +
-    scale_fill_brewer(palette = "Set2") +
-    scale_y_continuous(expand = expansion(mult = c(0, 0.15))) +
+    geom_text(aes(label = n_caves), hjust = -0.2, size = 3, colour = "#333333") +
+    scale_fill_viridis_d(option = "D", direction = -1) +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.35))) +
     coord_flip() +
     labs(title    = "Top 20 stygobiont species by cave occurrences",
          x = NULL, y = "Number of caves") +
-    theme_cfg() + theme(legend.position = "bottom")
+    theme_cfg_bar() + theme(legend.position = "bottom")
 save_plot(p, "q_species_stygobiont", w = 24, h = 14)
 
 # Q: Broad-distribution species (mainland + island)
@@ -279,15 +267,16 @@ p_eprop <- ggplot(cave_species_region |>
                       mutate(NAME_2 = fct_reorder(NAME_2, prop_endemic)),
                   aes(x = NAME_2, y = prop_endemic, fill = NAME_2)) +
     geom_col(width = 0.75, show.legend = FALSE) +
-    geom_text(aes(label = percent(prop_endemic, accuracy = 1)), hjust = -0.2, size = 3.5) +
-    scale_fill_brewer(palette = "Set3") +
-    scale_y_continuous(expand = expansion(mult = c(0, 0.15)),
+    geom_text(aes(label = percent(prop_endemic, accuracy = 1)), hjust = -0.2, size = 3.5,
+              colour = "#333333") +
+    scale_fill_viridis_d(option = "D", direction = -1) +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.35)),
                        labels = percent_format()) +
     coord_flip() +
     labs(title    = "Endemic species proportion per region",
          subtitle = "Proportion of cave species endemic to Greece",
          x = NULL, y = "Proportion endemic") +
-    theme_cfg()
+    theme_cfg_bar()
 save_plot(p_eprop, "q_species_region_endemic_prop", w = 18, h = 12)
 
 # Q: Altitudinal gradient
@@ -303,8 +292,8 @@ cat("Spearman r (altitude vs richness):",
 save_tsv(altitude_df, "q_species_altitude_gradient")
 
 p <- ggplot(altitude_df, aes(x = Altitude, y = n_species)) +
-    geom_point(alpha = 0.4, colour = "#2c7bb6", size = 1.5) +
-    geom_smooth(method = "loess", formula = y ~ x, colour = "#d73027",
+    geom_point(alpha = 0.4, colour = "#0072B2", size = 1.5) +
+    geom_smooth(method = "loess", formula = y ~ x, colour = "#D55E00",
                 se = TRUE, linewidth = 1) +
     scale_x_continuous(breaks = seq(0, 2500, 250)) +
     labs(title    = "Altitudinal gradient in cave species richness",
@@ -326,8 +315,8 @@ cat("Spearman r (latitude vs richness):",
 save_tsv(latitude_df, "q_species_latitude_gradient")
 
 p <- ggplot(latitude_df, aes(x = Latitude, y = n_species)) +
-    geom_point(alpha = 0.4, colour = "#1a9641", size = 1.5) +
-    geom_smooth(method = "loess", formula = y ~ x, colour = "#d73027",
+    geom_point(alpha = 0.4, colour = "#009E73", size = 1.5) +
+    geom_smooth(method = "loess", formula = y ~ x, colour = "#D55E00",
                 se = TRUE, linewidth = 1) +
     scale_x_continuous(breaks = seq(34, 42, 1)) +
     labs(title    = "Latitudinal gradient in cave species richness",
@@ -367,7 +356,7 @@ p <- ggplot(iucn_breakdown |>
     coord_flip() +
     labs(title    = "IUCN Red List categories by ecological classification",
          x = NULL, y = "Number of species") +
-    theme_cfg() + theme(legend.position = "bottom")
+    theme_cfg_bar() + theme(legend.position = "bottom")
 save_plot(p, "q_species_iucn", w = 22, h = 12)
 
 # Q: Greek Red Data Book
@@ -387,7 +376,7 @@ p <- ggplot(grdb_breakdown |>
     coord_flip() +
     labs(title    = "Greek Red Data Book categories by ecological classification",
          x = NULL, y = "Number of species") +
-    theme_cfg() + theme(legend.position = "bottom")
+    theme_cfg_bar() + theme(legend.position = "bottom")
 save_plot(p, "q_species_greek_rdb", w = 22, h = 12)
 
 # Q: IUCN Threatened troglobionts
@@ -420,7 +409,7 @@ p <- ggplot(threatened_endemic |>
     geom_point(size = 3) +
     scale_colour_manual(values = clf_colours) +
     coord_flip() +
-    labs(title    = "Threatened endemic-to-Greece cave species",
+    labs(title = "Threatened endemic-to-Greece cave species",
          subtitle = paste0(nrow(threatened_endemic), " species with IUCN CR/EN/VU status"),
          x = NULL, y = "IUCN category") +
     theme_cfg() + theme(legend.position = "bottom",
@@ -465,14 +454,14 @@ p <- ggplot(linnaean |> head(15) |>
     geom_text(aes(label = paste0(percent(prop_unasses, accuracy = 1),
                                   " (n=", n_total, ")")),
               hjust = -0.1, size = 3) +
-    scale_fill_gradient(low = "#e0f3f8", high = "#313695", name = "Total\nspecies") +
-    scale_y_continuous(expand = expansion(mult = c(0, 0.3)),
+    scale_fill_gradient(low = seq_lo, high = seq_hi, name = "Total\nspecies") +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.35)),
                        labels = percent_format()) +
     coord_flip() +
     labs(title    = "Linnaean shortfall: orders with most unassessed species",
          subtitle = "NE = Not Evaluated on IUCN Red List",
          x = NULL, y = "Proportion unassessed (IUCN NE)") +
-    theme_cfg()
+    theme_cfg_bar()
 save_plot(p, "q_species_linnaean_shortfall", w = 20, h = 13)
 
 # Q: Threatened × Natura2000 overlap
@@ -504,8 +493,8 @@ p <- ggplot(threatened_n2000 |> tail(2),
             aes(x = metric, y = count, fill = metric)) +
     geom_col(width = 0.5, show.legend = FALSE) +
     geom_text(aes(label = count), vjust = -0.4, size = 5) +
-    scale_fill_manual(values = c("Threatened in ≥1 N2000 cave" = "#27ae60",
-                                  "Threatened NOT in any N2000 cave" = "#e74c3c")) +
+    scale_fill_manual(values = c("Threatened in ≥1 N2000 cave"      = "#0072B2",
+                                  "Threatened NOT in any N2000 cave" = "#D55E00")) +
     scale_y_continuous(expand = expansion(mult = c(0, 0.2))) +
     labs(title    = "Threatened cave species: Natura2000 coverage",
          subtitle = paste0(threatened_n2000$count[1],
@@ -545,15 +534,15 @@ p <- ggplot(locus_typicus_caves |>
                 mutate(Locus_Typicus_Cave = fct_reorder(Locus_Typicus_Cave, n_species)),
             aes(x = Locus_Typicus_Cave, y = n_species, fill = n_species)) +
     geom_col(width = 0.75, show.legend = FALSE) +
-    geom_text(aes(label = n_species), hjust = -0.2, size = 3) +
-    scale_fill_gradient(low = "#deebf7", high = "#08519c") +
-    scale_y_continuous(expand = expansion(mult = c(0, 0.25))) +
+    geom_text(aes(label = n_species), hjust = -0.2, size = 3, colour = "#333333") +
+    scale_fill_gradient(low = seq_lo, high = seq_hi) +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.35))) +
     coord_flip() +
     labs(title    = "Top caves as type localities (Locus Typicus)",
          subtitle = paste0(sum(!is.na(species$Locus_Typicus_Cave)),
                            " species described from Greek cave type localities"),
          x = NULL, y = "Number of species") +
-    theme_cfg()
+    theme_cfg_bar()
 save_plot(p, "q_species_locus_typicus", w = 20, h = 13)
 
 # Q: External database link coverage (GBIF, IUCN, PESI, NCBI, Fauna Europaea)
@@ -577,17 +566,17 @@ save_tsv(db_links, "q_species_database_links")
 
 p <- ggplot(db_links,
             aes(x = fct_reorder(database, prop_linked), y = prop_linked)) +
-    geom_col(fill = "#4393c3", width = 0.65) +
+    geom_col(fill = "#0072B2", width = 0.65) +
     geom_text(aes(label = paste0(percent(prop_linked, accuracy = 1),
                                   " (n=", n_linked, ")")),
-              hjust = -0.1, size = 3.2) +
-    scale_y_continuous(expand = expansion(mult = c(0, 0.3)),
+              hjust = -0.1, size = 3.2, colour = "#333333") +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.35)),
                        labels = percent_format()) +
     coord_flip() +
     labs(title    = "External database link coverage",
          subtitle = paste0("Total species in database: ", nrow(species)),
          x = NULL, y = "Proportion of species with link") +
-    theme_cfg()
+    theme_cfg_bar()
 save_plot(p, "q_species_database_links", w = 18, h = 10)
 
 # Q: Taxon occurrence distribution (hollow curve — most species found in few caves)
@@ -619,8 +608,8 @@ cat("Singleton species (found in 1 cave):",
 save_tsv(taxon_occ, "q_species_occurrence_distribution")
 
 p <- ggplot(taxon_occ, aes(x = n_occurrences, y = n_taxa)) +
-    geom_line(colour = "#4393c3") +
-    geom_point(colour = "#4393c3", size = 1) +
+    geom_line(colour = "#0072B2") +
+    geom_point(colour = "#0072B2", size = 1) +
     facet_wrap(~ factor(rank, levels = c("Species", "Genus", "Family", "Order")),
                scales = "free", ncol = 2) +
     labs(title    = "Taxon occurrence distributions (hollow curve)",
@@ -643,7 +632,7 @@ save_tsv(altitude_clf, "q_species_altitude_by_classification")
 
 p <- ggplot(altitude_clf, aes(x = mean_alt, y = n_species, colour = Classification)) +
     geom_line(linewidth = 0.8) +
-    scale_colour_brewer(palette = "Set1") +
+    scale_colour_manual(values = clf_colours) +
     scale_x_continuous(breaks = seq(0, 2400, 200)) +
     labs(title    = "Species richness along altitude gradient by ecological classification",
          x = "Altitude (m a.s.l.)", y = "Number of species per 100 m bin",

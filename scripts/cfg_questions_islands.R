@@ -427,6 +427,281 @@ save_plot(p_z, "q_islands_sar_slope_comparison", w = 18, h = 12)
 
 ################################################################
 cat("\n================================================================\n")
+cat("ISLANDS — SAR BY TAXONOMIC ORDER\n")
+cat("================================================================\n")
+
+# Per-island species count by Order, joined to area + effort predictors
+island_order_eff <- island_species |>
+    filter(is_island) |>
+    left_join(species |> select(Species_Full_Name, Order),
+              by = c("Species" = "Species_Full_Name")) |>
+    filter(!is.na(Order)) |>
+    group_by(NAME_2, NAME_3, Order) |>
+    summarise(n_species = n_distinct(Species), .groups = "drop") |>
+    inner_join(sar_eff |> select(NAME_2, NAME_3, area_island_km2, n_caves, log_A, log_E),
+               by = c("NAME_2", "NAME_3")) |>
+    filter(n_caves >= 1)
+
+# Effort-corrected SAR for each Order with ≥ 5 islands recording that order
+orders_split <- island_order_eff |>
+    group_by(Order) |>
+    group_split()
+
+sar_order_results <- lapply(orders_split, function(df) {
+    ord    <- df$Order[1]
+    df_fit <- df[df$n_species > 0, ]
+    if (nrow(df_fit) < 5) return(NULL)
+    tryCatch({
+        fit_naive <- lm(log10(n_species) ~ log_A,          data = df_fit)
+        fit_eff   <- lm(log10(n_species) ~ log_A + log_E,  data = df_fit)
+        ci_naive  <- confint(fit_naive, "log_A", level = 0.95)
+        ci_eff    <- confint(fit_eff,   "log_A", level = 0.95)
+        tibble(
+            Order           = ord,
+            n_islands       = nrow(df_fit),
+            n_species_total = sum(df_fit$n_species),
+            z_naive         = round(coef(fit_naive)["log_A"], 3),
+            z_naive_lo      = round(ci_naive[1], 3),
+            z_naive_hi      = round(ci_naive[2], 3),
+            z_eff           = round(coef(fit_eff)["log_A"], 3),
+            z_eff_lo        = round(ci_eff[1], 3),
+            z_eff_hi        = round(ci_eff[2], 3),
+            beta_effort     = round(coef(fit_eff)["log_E"], 3),
+            r2_naive        = round(summary(fit_naive)$r.squared, 3),
+            r2_eff          = round(summary(fit_eff)$r.squared, 3),
+            p_area_eff      = round(coef(summary(fit_eff))["log_A", "Pr(>|t|)"], 5),
+            p_effort        = round(coef(summary(fit_eff))["log_E",  "Pr(>|t|)"], 5)
+        )
+    }, error = function(e) NULL)
+}) |> bind_rows() |> arrange(desc(n_islands))
+
+cat("Orders with ≥ 5 islands:", nrow(sar_order_results), "\n")
+print(sar_order_results |>
+          select(Order, n_islands, n_species_total,
+                 z_naive, z_eff, z_eff_lo, z_eff_hi, p_area_eff, beta_effort))
+save_tsv(sar_order_results, "q_islands_sar_by_order")
+
+# Forest plot: effort-corrected z per Order, sorted by z_eff
+p_h <- max(8, nrow(sar_order_results) * 0.7 + 3)
+p_order_z <- ggplot(
+        sar_order_results |>
+            mutate(Order    = fct_reorder(Order, z_eff),
+                   sig_area = p_area_eff < 0.05),
+        aes(x = Order, y = z_eff, ymin = z_eff_lo, ymax = z_eff_hi,
+            colour = sig_area)) +
+    geom_hline(yintercept = 0, colour = "#aaaaaa", linewidth = 0.4, linetype = "dashed") +
+    geom_pointrange(size = 0.5, linewidth = 0.7) +
+    scale_colour_manual(values = c("TRUE" = "#0072B2", "FALSE" = "#999999"),
+                        labels = c("TRUE" = "p < 0.05", "FALSE" = "p ≥ 0.05"),
+                        name = "Area effect") +
+    coord_flip() +
+    labs(title    = "Effort-corrected SAR slope by taxonomic Order",
+         subtitle = "z from log₁₀(S) ~ log₁₀(A) + log₁₀(n caves); orders with ≥ 5 island presences",
+         x = NULL, y = "SAR slope z  [95% CI]") +
+    theme_cfg_bar()
+save_plot(p_order_z, "q_islands_sar_by_order", w = 20, h = p_h)
+
+# Facet plot: log-log SAR scatter + regression line per Order
+# Join slope labels from results table
+order_labels <- sar_order_results |>
+    mutate(facet_label = paste0(Order,
+                                "\nz = ", z_eff,
+                                ifelse(p_area_eff < 0.05, "*", ""),
+                                "  n = ", n_islands))
+
+sar_order_plot_data <- island_order_eff |>
+    filter(Order %in% sar_order_results$Order, n_species > 0) |>
+    left_join(order_labels |> select(Order, facet_label, p_area_eff), by = "Order") |>
+    mutate(sig_area = p_area_eff < 0.05)
+
+n_orders  <- n_distinct(sar_order_plot_data$Order)
+n_cols    <- 5L
+n_rows    <- ceiling(n_orders / n_cols)
+
+p_order_facet <- ggplot(sar_order_plot_data,
+                        aes(x = area_island_km2, y = n_species)) +
+    geom_point(aes(colour = sig_area), size = 1.8, alpha = 0.75) +
+    geom_smooth(method = "lm", formula = y ~ x, se = TRUE,
+                colour = "#333333", fill = "#cccccc",
+                linewidth = 0.7, alpha = 0.25) +
+    scale_x_log10(labels = label_comma(accuracy = 1)) +
+    scale_y_log10() +
+    scale_colour_manual(values = c("TRUE" = "#0072B2", "FALSE" = "#999999"),
+                        labels = c("TRUE" = "p < 0.05", "FALSE" = "p ≥ 0.05"),
+                        name = "Area effect") +
+    facet_wrap(~ facet_label, ncol = n_cols, scales = "free") +
+    labs(title    = "Species–area relationships by taxonomic Order",
+         subtitle = "log–log axes; regression line with 95% CI; * = p < 0.05 for area term after effort correction",
+         x = "Island area (km²)", y = "Species richness") +
+    theme_cfg() +
+    theme(legend.position   = "bottom",
+          strip.text        = element_text(size = rel(0.78)),
+          axis.text         = element_text(size = rel(0.75)))
+save_plot(p_order_facet, "q_islands_sar_by_order_facet",
+          w = n_cols * 8, h = n_rows * 7)
+
+################################################################
+cat("\n================================================================\n")
+cat("ISLANDS — ENDEMIC SAR: OVERALL AND BY ORDER\n")
+cat("================================================================\n")
+
+# ── Overall endemic SAR ───────────────────────────────────────────────────────
+cat("\n--- Overall endemic SAR ---\n")
+sar_endemic_eff <- sar_eff |> filter(n_endemic > 0)
+
+fit_end_naive <- lm(log10(n_endemic) ~ log_A,         data = sar_endemic_eff)
+fit_end_eff   <- lm(log10(n_endemic) ~ log_A + log_E, data = sar_endemic_eff)
+ci_end_eff    <- confint(fit_end_eff, "log_A", level = 0.95)
+
+z_end_naive <- round(coef(fit_end_naive)["log_A"], 3)
+z_end_eff   <- round(coef(fit_end_eff)["log_A"], 3)
+z_end_lo    <- round(ci_end_eff[1], 3)
+z_end_hi    <- round(ci_end_eff[2], 3)
+p_end_area  <- round(coef(summary(fit_end_eff))["log_A", "Pr(>|t|)"], 5)
+b_end_eff   <- round(coef(fit_end_eff)["log_E"], 3)
+
+cat("Naive z =", z_end_naive,
+    "  Effort-corrected z =", z_end_eff,
+    "  95% CI [", z_end_lo, ",", z_end_hi, "]",
+    "  p =", p_end_area, "\n")
+cat("Beta effort:", b_end_eff, "\n")
+
+# Raw log-log scatter (naive line shown; both z values in subtitle)
+p_end_overall <- ggplot(sar_endemic_eff,
+                        aes(x = area_island_km2, y = n_endemic)) +
+    geom_point(colour = "#D55E00", size = 2.5, alpha = 0.75) +
+    ggrepel::geom_text_repel(aes(label = NAME_3), size = 2.2,
+                             colour = "#555555", max.overlaps = 15,
+                             segment.colour = "#cccccc") +
+    geom_smooth(method = "lm", formula = y ~ x, se = TRUE,
+                colour = "#333333", fill = "#cccccc",
+                linewidth = 0.8, alpha = 0.25) +
+    scale_x_log10(labels = label_comma(accuracy = 1)) +
+    scale_y_log10() +
+    labs(title    = "Endemic species–area relationship across Greek islands",
+         subtitle = paste0("Naive z = ", z_end_naive,
+                           "   Effort-corrected z = ", z_end_eff,
+                           " [", z_end_lo, "–", z_end_hi, "]",
+                           "   p = ", p_end_area,
+                           "   β_effort = ", b_end_eff,
+                           "   n = ", nrow(sar_endemic_eff), " islands"),
+         x = "Island area (km²)", y = "Endemic species richness (log scale)") +
+    theme_cfg()
+save_plot(p_end_overall, "q_islands_sar_endemic_overall", w = 22, h = 15)
+
+# ── Per-order endemic SAR ─────────────────────────────────────────────────────
+cat("\n--- Per-order endemic SAR ---\n")
+
+island_endemic_order <- island_species |>
+    filter(is_island) |>
+    left_join(species |> select(Species_Full_Name, Order, Distribution),
+              by = c("Species" = "Species_Full_Name")) |>
+    filter(!is.na(Order), Distribution == "Endemic to Greece") |>
+    group_by(NAME_2, NAME_3, Order) |>
+    summarise(n_endemic = n_distinct(Species), .groups = "drop") |>
+    inner_join(sar_eff |> select(NAME_2, NAME_3, area_island_km2, n_caves, log_A, log_E),
+               by = c("NAME_2", "NAME_3")) |>
+    filter(n_caves >= 1)
+
+sar_endemic_order_results <- island_endemic_order |>
+    group_by(Order) |>
+    group_split() |>
+    lapply(function(df) {
+        ord    <- df$Order[1]
+        df_fit <- df[df$n_endemic > 0, ]
+        if (nrow(df_fit) < 5) return(NULL)
+        tryCatch({
+            fit_naive <- lm(log10(n_endemic) ~ log_A,          data = df_fit)
+            fit_eff   <- lm(log10(n_endemic) ~ log_A + log_E,  data = df_fit)
+            ci_naive  <- confint(fit_naive, "log_A", level = 0.95)
+            ci_eff    <- confint(fit_eff,   "log_A", level = 0.95)
+            tibble(
+                Order           = ord,
+                n_islands       = nrow(df_fit),
+                n_endemic_total = sum(df_fit$n_endemic),
+                z_naive         = round(coef(fit_naive)["log_A"], 3),
+                z_naive_lo      = round(ci_naive[1], 3),
+                z_naive_hi      = round(ci_naive[2], 3),
+                z_eff           = round(coef(fit_eff)["log_A"], 3),
+                z_eff_lo        = round(ci_eff[1], 3),
+                z_eff_hi        = round(ci_eff[2], 3),
+                beta_effort     = round(coef(fit_eff)["log_E"], 3),
+                r2_naive        = round(summary(fit_naive)$r.squared, 3),
+                r2_eff          = round(summary(fit_eff)$r.squared, 3),
+                p_area_eff      = round(coef(summary(fit_eff))["log_A", "Pr(>|t|)"], 5),
+                p_effort        = round(coef(summary(fit_eff))["log_E",  "Pr(>|t|)"], 5)
+            )
+        }, error = function(e) NULL)
+    }) |>
+    bind_rows() |>
+    arrange(desc(n_islands))
+
+cat("Orders with ≥ 5 islands for endemic SAR:", nrow(sar_endemic_order_results), "\n")
+print(sar_endemic_order_results |>
+          select(Order, n_islands, n_endemic_total,
+                 z_naive, z_eff, z_eff_lo, z_eff_hi, p_area_eff, beta_effort))
+save_tsv(sar_endemic_order_results, "q_islands_sar_endemic_by_order")
+
+# Forest plot (vermillion for endemic to distinguish from total-species blue)
+p_h_end <- max(8, nrow(sar_endemic_order_results) * 0.7 + 3)
+p_end_order_z <- ggplot(
+        sar_endemic_order_results |>
+            mutate(Order    = fct_reorder(Order, z_eff),
+                   sig_area = p_area_eff < 0.05),
+        aes(x = Order, y = z_eff, ymin = z_eff_lo, ymax = z_eff_hi,
+            colour = sig_area)) +
+    geom_hline(yintercept = 0, colour = "#aaaaaa", linewidth = 0.4, linetype = "dashed") +
+    geom_pointrange(size = 0.5, linewidth = 0.7) +
+    scale_colour_manual(values = c("TRUE" = "#D55E00", "FALSE" = "#999999"),
+                        labels = c("TRUE" = "p < 0.05", "FALSE" = "p ≥ 0.05"),
+                        name = "Area effect") +
+    coord_flip() +
+    labs(title    = "Effort-corrected endemic SAR slope by taxonomic Order",
+         subtitle = "z from log₁₀(endemics) ~ log₁₀(A) + log₁₀(n caves); orders with ≥ 5 island presences",
+         x = NULL, y = "SAR slope z  [95% CI]") +
+    theme_cfg_bar()
+save_plot(p_end_order_z, "q_islands_sar_endemic_by_order", w = 20, h = p_h_end)
+
+# Facet plot: one panel per qualifying Order
+end_order_labels <- sar_endemic_order_results |>
+    mutate(facet_label = paste0(Order,
+                                "\nz = ", z_eff,
+                                ifelse(p_area_eff < 0.05, "*", ""),
+                                "  n = ", n_islands))
+
+sar_end_plot_data <- island_endemic_order |>
+    filter(Order %in% sar_endemic_order_results$Order, n_endemic > 0) |>
+    left_join(end_order_labels |> select(Order, facet_label, p_area_eff), by = "Order") |>
+    mutate(sig_area = p_area_eff < 0.05)
+
+n_end_orders <- n_distinct(sar_end_plot_data$Order)
+n_end_cols   <- min(5L, n_end_orders)
+n_end_rows   <- ceiling(n_end_orders / n_end_cols)
+
+p_end_facet <- ggplot(sar_end_plot_data,
+                      aes(x = area_island_km2, y = n_endemic)) +
+    geom_point(aes(colour = sig_area), size = 1.8, alpha = 0.75) +
+    geom_smooth(method = "lm", formula = y ~ x, se = TRUE,
+                colour = "#333333", fill = "#cccccc",
+                linewidth = 0.7, alpha = 0.25) +
+    scale_x_log10(labels = label_comma(accuracy = 1)) +
+    scale_y_log10() +
+    scale_colour_manual(values = c("TRUE" = "#D55E00", "FALSE" = "#999999"),
+                        labels = c("TRUE" = "p < 0.05", "FALSE" = "p ≥ 0.05"),
+                        name = "Area effect") +
+    facet_wrap(~ facet_label, ncol = n_end_cols, scales = "free") +
+    labs(title    = "Endemic species–area relationships by taxonomic Order",
+         subtitle = "log–log axes; * = p < 0.05 for area term (effort-corrected)",
+         x = "Island area (km²)", y = "Endemic species richness") +
+    theme_cfg() +
+    theme(legend.position = "bottom",
+          strip.text      = element_text(size = rel(0.78)),
+          axis.text       = element_text(size = rel(0.75)))
+save_plot(p_end_facet, "q_islands_sar_endemic_by_order_facet",
+          w = n_end_cols * 8, h = n_end_rows * 7)
+
+################################################################
+cat("\n================================================================\n")
 cat("ISLANDS — RICHNESS RANKINGS\n")
 cat("================================================================\n")
 

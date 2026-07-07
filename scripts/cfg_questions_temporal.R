@@ -9,12 +9,12 @@ library(tidyr)
 library(readr)
 library(ggplot2)
 library(forcats)
-library(RColorBrewer)
 library(scales)
 library(stringr)
 library(vegan)
 
 source("scripts/cfg_load_data.R")
+source("scripts/cfg_plot_style.R")
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 save_tsv <- function(df, name) {
@@ -25,13 +25,6 @@ save_plot <- function(p, name, w = 18, h = 12) {
     ggsave(file.path("plots", paste0(name, ".png")),
            plot = p, width = w, height = h, units = "cm", dpi = 300)
     invisible(p)
-}
-theme_cfg <- function(base = 11) {
-    theme_bw(base_size = base) +
-    theme(panel.grid.minor  = element_blank(),
-          panel.grid.major  = element_blank(),
-          plot.title        = element_text(face = "bold"),
-          plot.subtitle     = element_text(colour = "grey40", size = base - 1))
 }
 
 # ── join references to census long ───────────────────────────────────────────
@@ -65,8 +58,8 @@ p <- ggplot(ref_inv |> tail(2),
             aes(x = metric, y = count, fill = metric)) +
     geom_col(width = 0.5, show.legend = FALSE) +
     geom_text(aes(label = count), vjust = -0.4, size = 5) +
-    scale_fill_manual(values = c("Single-cave references (1 cave)"     = "#2c7bb6",
-                                  "Multi-cave references (≥2 caves)"    = "#d73027")) +
+    scale_fill_manual(values = c("Single-cave references (1 cave)"     = "#0072B2",
+                                  "Multi-cave references (≥2 caves)"    = "#D55E00")) +
     scale_y_continuous(expand = expansion(mult = c(0, 0.2))) +
     labs(title    = "Reference inventory: single-cave vs multi-cave",
          subtitle = paste0(ref_inv$count[1], " total references"),
@@ -90,12 +83,12 @@ p <- ggplot(refs_most_caves |>
             aes(x = label, y = n_caves, fill = Year)) +
     geom_col(width = 0.75) +
     geom_text(aes(label = n_caves), hjust = -0.2, size = 3.5) +
-    scale_fill_gradient(low = "#a8d8ea", high = "#154360", name = "Year") +
-    scale_y_continuous(expand = expansion(mult = c(0, 0.15))) +
+    scale_fill_gradient(low = seq_lo, high = seq_hi, name = "Year") +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.35))) +
     coord_flip() +
     labs(title    = "Top 20 references by number of caves covered",
          x = NULL, y = "Number of caves") +
-    theme_cfg()
+    theme_cfg_bar()
 save_plot(p, "q_refs_most_caves", w = 24, h = 14)
 
 ################################################################
@@ -133,9 +126,9 @@ max_cum  <- max(species_per_decade$cumulative)
 scale_f  <- max_cum / max_new
 
 p <- ggplot(species_per_decade, aes(x = decade)) +
-    geom_col(aes(y = n_new_species), fill = "#2c7bb6", width = 8, alpha = 0.8) +
-    geom_line(aes(y = cumulative / scale_f), colour = "#d73027", linewidth = 1.2) +
-    geom_point(aes(y = cumulative / scale_f), colour = "#d73027", size = 2.5) +
+    geom_col(aes(y = n_new_species), fill = "#0072B2", width = 8, alpha = 0.8) +
+    geom_line(aes(y = cumulative / scale_f), colour = "#D55E00", linewidth = 1.2) +
+    geom_point(aes(y = cumulative / scale_f), colour = "#D55E00", size = 2.5) +
     scale_x_continuous(breaks = seq(1860, 2030, 10)) +
     scale_y_continuous(
         name     = "New species per decade",
@@ -143,12 +136,12 @@ p <- ggplot(species_per_decade, aes(x = decade)) +
                             breaks = seq(0, max_cum, 100))
     ) +
     labs(title    = "Cave species discovery by decade",
-         subtitle = "Blue bars: new first records; red line: cumulative total",
+         subtitle = "Blue bars: new first records; orange line: cumulative total",
          x        = "Decade") +
     theme_cfg() +
     theme(axis.text.x      = element_text(angle = 45, hjust = 1),
-          axis.title.y      = element_text(colour = "#2c7bb6"),
-          axis.title.y.right = element_text(colour = "#d73027"))
+          axis.title.y      = element_text(colour = "#0072B2"),
+          axis.title.y.right = element_text(colour = "#D55E00"))
 save_plot(p, "q_species_per_decade", w = 26, h = 14)
 
 # Q: Cumulative species discovery curve
@@ -180,8 +173,8 @@ save_tsv(accum_data |> select(first_year, cumulative, type),
 p <- ggplot(accum_data, aes(x = first_year, y = cumulative, colour = type)) +
     geom_line(linewidth = 1.2) +
     geom_point(data = accum_data |> filter(first_year %% 10 == 0), size = 2) +
-    scale_colour_manual(values = c("All species" = "#2c7bb6",
-                                   "Endemic to Greece" = "#d73027"),
+    scale_colour_manual(values = c("All species" = "#0072B2",
+                                   "Endemic to Greece" = "#D55E00"),
                         name = NULL) +
     scale_x_continuous(breaks = seq(1860, 2030, 10)) +
     labs(title    = "Cumulative cave species discovery over time",
@@ -202,7 +195,7 @@ print(caves_per_decade)
 save_tsv(caves_per_decade, "q_caves_per_decade")
 
 p <- ggplot(caves_per_decade, aes(x = decade, y = n_new_caves)) +
-    geom_col(fill = "#1a9641", width = 8, alpha = 0.85) +
+    geom_col(fill = "#009E73", width = 8, alpha = 0.85) +
     geom_text(aes(label = n_new_caves), vjust = -0.3, size = 3.2) +
     scale_x_continuous(breaks = seq(1860, 2030, 10)) +
     scale_y_continuous(expand = expansion(mult = c(0, 0.15))) +
@@ -224,7 +217,7 @@ print(records_per_decade)
 save_tsv(records_per_decade, "q_records_per_decade")
 
 p <- ggplot(records_per_decade, aes(x = decade, y = n_records)) +
-    geom_col(fill = "#6a3d9a", width = 8, alpha = 0.85) +
+    geom_col(fill = "#0072B2", width = 8, alpha = 0.85) +
     geom_text(aes(label = n_records), vjust = -0.3, size = 3.2) +
     scale_x_continuous(breaks = seq(1860, 2030, 10)) +
     scale_y_continuous(expand = expansion(mult = c(0, 0.15))) +
@@ -267,13 +260,13 @@ p <- ggplot(author_counts |> head(20) |>
             aes(x = surname, y = n_refs, fill = n_refs)) +
     geom_col(width = 0.75, show.legend = FALSE) +
     geom_text(aes(label = n_refs), hjust = -0.2, size = 3.5) +
-    scale_fill_gradient(low = "#a8d8ea", high = "#154360") +
-    scale_y_continuous(expand = expansion(mult = c(0, 0.15))) +
+    scale_fill_gradient(low = seq_lo, high = seq_hi) +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.35))) +
     coord_flip() +
     labs(title    = "Top 20 authors by number of references",
          subtitle = "Author surname extracted from Reference_Short",
          x = NULL, y = "Number of references") +
-    theme_cfg()
+    theme_cfg_bar()
 save_plot(p, "q_author_contributions", w = 18, h = 14)
 
 # Q: Journal contributions — extract journal from Section
@@ -295,13 +288,13 @@ p <- ggplot(journal_counts |> head(20) |>
             aes(x = journal, y = n_refs, fill = n_refs)) +
     geom_col(width = 0.75, show.legend = FALSE) +
     geom_text(aes(label = n_refs), hjust = -0.2, size = 3) +
-    scale_fill_gradient(low = "#a8d8ea", high = "#154360") +
-    scale_y_continuous(expand = expansion(mult = c(0, 0.15))) +
+    scale_fill_gradient(low = seq_lo, high = seq_hi) +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.35))) +
     coord_flip() +
     labs(title    = "Top 20 publication venues by number of references",
          subtitle = "Extracted from Section field (journal/book citation line)",
          x = NULL, y = "Number of references") +
-    theme_cfg()
+    theme_cfg_bar()
 save_plot(p, "q_journal_contributions", w = 22, h = 14)
 
 # Q: Species per reference (effort ratio histogram)
@@ -316,7 +309,7 @@ cat("Median species per reference:", median(refs_species_count$n_species_per_ref
 save_tsv(refs_species_count, "q_refs_species_per_ref")
 
 p <- ggplot(refs_species_count, aes(x = n_species_per_ref)) +
-    geom_histogram(bins = 40, fill = "#6a3d9a", colour = "white", linewidth = 0.2) +
+    geom_histogram(bins = 40, fill = "#0072B2", colour = "white", linewidth = 0.2) +
     scale_x_continuous(breaks = seq(0, 300, 25)) +
     labs(title    = "Distribution of species per reference",
          subtitle = paste0("Mean = ", round(mean(refs_species_count$n_species_per_ref), 1),
@@ -386,16 +379,16 @@ save_tsv(chao1_df, "q_sampling_completeness")
 p <- ggplot(chao1_df |>
                 mutate(Region = fct_reorder(Region, prop_observed)),
             aes(x = Region)) +
-    geom_col(aes(y = chao1), fill = "#d3e5f5", width = 0.6) +
-    geom_col(aes(y = observed_sp), fill = "#2c7bb6", width = 0.6) +
+    geom_col(aes(y = chao1), fill = seq_lo, width = 0.6) +
+    geom_col(aes(y = observed_sp), fill = "#0072B2", width = 0.6) +
     geom_text(aes(y = chao1, label = round(prop_observed, 2)),
-              hjust = -0.2, size = 3.2) +
-    scale_y_continuous(expand = expansion(mult = c(0, 0.15))) +
+              hjust = -0.2, size = 3.2, colour = "#333333") +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.35))) +
     coord_flip() +
     labs(title    = "Sampling completeness by region (Chao1 estimator)",
          subtitle = "Dark blue = observed species; light blue = Chao1 estimate; label = proportion observed",
          x = NULL, y = "Number of species") +
-    theme_cfg()
+    theme_cfg_bar()
 save_plot(p, "q_sampling_completeness", w = 20, h = 13)
 
 # Q: Are discovery rates levelling off (open frontier vs near-complete)?
@@ -472,10 +465,10 @@ save_tsv(accum_clf |> select(Year, cumulative, Classification),
 p <- ggplot(accum_clf, aes(x = Year, y = cumulative, colour = Classification)) +
     geom_line(linewidth = 1) +
     scale_colour_manual(values = c(
-        "All species"              = "#4393c3",
-        "Endemic to Greece"        = "#d6604d",
-        "Troglobiont + Stygobiont" = "#4daf4a",
-        "Troglophile + Stygophile" = "#e6ab02"
+        "All species"              = "#0072B2",
+        "Endemic to Greece"        = "#D55E00",
+        "Troglobiont + Stygobiont" = "#009E73",
+        "Troglophile + Stygophile" = "#E69F00"
     )) +
     scale_x_continuous(breaks = seq(1860, 2030, 20), limits = c(1860, 2030),
                        expand = expansion(mult = c(0.01, 0.01))) +
@@ -509,7 +502,7 @@ p <- ggplot(accum_taxclass,
     geom_line(linewidth = 1) +
     scale_x_continuous(breaks = seq(1860, 2030, 20), limits = c(1860, 2030)) +
     scale_y_continuous(expand = expansion(mult = c(0.01, 0.05))) +
-    scale_colour_brewer(palette = "Set1") +
+    scale_colour_viridis_d(option = "D") +
     labs(title  = "Cumulative species discovery by taxonomic class",
          x = "Year", y = "Cumulative number of species", colour = NULL) +
     theme_cfg() +
