@@ -1,60 +1,12 @@
 #!/usr/bin/env Rscript
 
-# Load packages
-library(readr)
-library(dplyr)
-library(tibble)
 library(sf)
 library(ggplot2)
 library(tidyr)
 library(kableExtra)
 library(RColorBrewer)
 
-# Load data
-# setwd("../") # remove # when running from interactively
-print("Loading data")
-data_files <- list.files(path = "data")
- 
-# Data import from Database Export
-# the files are choosen automatically based on their name.
-# The folder data must contain only the latest data files.
-Cave_References <- read_delim(file = paste0("data/",grep("Cave_References",data_files,value = TRUE)),delim = "\t")
- 
-caves <- read_delim(file = paste0("data/",grep("Caves",data_files,value = TRUE)),delim = "\t")
-caves$Longitude <- as.numeric(caves$Longitude)
-caves$Latitude <- as.numeric(caves$Latitude)
-
-census <- read_delim(file = paste0("data/",grep("Census_\\d",data_files,value = TRUE)),delim = "\t")
- 
-Census_references <- read_delim(file = paste0("data/",grep("Census_references",data_files,value = TRUE)),delim = "\t")
- 
-species <- read_delim(file = paste0("data/",
-                                    grep("Species_",data_files,value = TRUE)),
-                      delim = "\t") |>
-    mutate(Classification=gsub(pattern="\\?",replacement = "",x = Classification))# Data import from Database Export
-
-
-census$species_epithet <- as.character(lapply(strsplit(as.character(census$Species), split=" "), "[", n=2))
-
-census_all_species <- census |> left_join(species,by=c("Species"="Species_Full_Name"))
-
-census_all_species_all_caves <- census_all_species |> dplyr::select(-Cave_Name) |> left_join(caves, by=c("Cave_ID"="Cave_ID"))
-
-census_long_str_man <- strsplit(x = census_all_species$Reference_Short,split = "|",fixed=TRUE)
-census_long_str_man_id <- strsplit(x = census_all_species$Reference_ID,split = "|",fixed=TRUE)
-
-census_long_man <- tibble(ReferenceShort=unlist(census_long_str_man),
-                              Reference_ID=unlist(census_long_str_man_id),
-                              CaveName=rep.int(census_all_species$Cave_Name,times = sapply(census_long_str_man,length)),
-                              Cave_ID=rep.int(census_all_species$Cave_ID,times = sapply(census_long_str_man,length)),
-                              Census_id=rep.int(census_all_species$Census_ID,times = sapply(census_long_str_man,length)),
-                              Species=rep.int(census_all_species$Species,times = sapply(census_long_str_man,length))) |> 
-    group_by(Reference_ID,Cave_ID,CaveName,Species,Census_id) |> 
-    summarise(n=n(), .groups="keep") |> 
-    ungroup() |> 
-    mutate(Species=trimws(Species,"r"))
-
-census_long_man$Reference_ID <- as.numeric(census_long_man$Reference_ID)
+source("scripts/cfg_load_data.R")
 
 ####################### export ###################
 
@@ -64,7 +16,7 @@ caves_sf <- caves |>
              remove=F,
              crs="WGS84")
 
-st_write(caves_sf, "results/caves.geojson", elete_dsn = TRUE, append=FALSE)
+st_write(caves_sf, "results/caves.geojson", delete_dsn = TRUE, append=FALSE)
 
 ######################## main website plots ###########################
 
