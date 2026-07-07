@@ -509,6 +509,105 @@ p <- ggplot(accum_taxclass,
     theme(legend.position = "bottom")
 save_plot(p, "q_species_accumulation_by_taxclass", w = 20, h = 12)
 
+################################################################
+cat("\n================================================================\n")
+cat("SPECIES 'LOST?' — OLD RECORDS, NOT RE-FOUND IN WELL-SAMPLED CAVES\n")
+cat("================================================================\n")
+
+# Criteria:
+#   - species last recorded ≥ 60 years ago (≤ cutoff_year)
+#   - in a cave that was subsequently referenced ≥ 2 more times
+#   - species not present in any of those later references
+
+cutoff_year <- as.integer(format(Sys.Date(), "%Y")) - 60L
+cat("Cutoff year:", cutoff_year,
+    "(species must have been last seen at or before this year)\n\n")
+
+# Last year each species was seen in each specific cave
+last_sp_cave <- census_long_ref |>
+    filter(!is.na(Year), !grepl("\\bsp\\.$", Species)) |>
+    distinct(Cave_ID, Species, Reference_ID, Year) |>
+    group_by(Cave_ID, Species) |>
+    summarise(last_year_in_cave = max(Year), .groups = "drop")
+
+# All distinct reference years per cave (any species, any reference)
+cave_ref_years <- census_long_ref |>
+    filter(!is.na(Year)) |>
+    distinct(Cave_ID, Reference_ID, Year) |>
+    rename(ref_year = Year)
+
+# For each old species–cave pair, count references to that cave AFTER last_year_in_cave
+# (these are opportunities the species could have been re-detected but wasn't)
+lost_check <- last_sp_cave |>
+    filter(last_year_in_cave <= cutoff_year) |>
+    inner_join(cave_ref_years, by = "Cave_ID",
+               relationship = "many-to-many") |>
+    filter(ref_year > last_year_in_cave) |>
+    group_by(Cave_ID, Species, last_year_in_cave) |>
+    summarise(n_later_refs = n_distinct(Reference_ID), .groups = "drop") |>
+    filter(n_later_refs >= 2)
+
+# Species-level: flag "lost?" if qualifying in at least one cave
+lost_species <- lost_check |>
+    group_by(Species) |>
+    summarise(
+        n_qualifying_caves = n_distinct(Cave_ID),
+        last_year          = max(last_year_in_cave),
+        max_later_refs     = max(n_later_refs),
+        qualifying_caves   = paste(sort(unique(Cave_ID)), collapse = "|"),
+        .groups            = "drop"
+    ) |>
+    left_join(species |> select(Species_Full_Name, Classification, Order, Family,
+                                 Distribution, IUCN_Red_List),
+              by = c("Species" = "Species_Full_Name")) |>
+    mutate(status = "lost?") |>
+    arrange(last_year, Species)
+
+cat("Species flagged 'lost?':", nrow(lost_species), "\n")
+cat("\nBy classification:\n")
+print(lost_species |> count(Classification, sort = TRUE))
+cat("\nBy Order (top 10):\n")
+print(lost_species |> count(Order, sort = TRUE) |> head(10))
+cat("\nFull table:\n")
+print(lost_species |> select(Species, Classification, Order, last_year,
+                               n_qualifying_caves, max_later_refs, status),
+      n = Inf)
+save_tsv(lost_species, "q_species_lost")
+
+# ── Plot: last record year per species, coloured by classification ─────────────
+n_lost <- nrow(lost_species)
+txt_sz <- if (n_lost > 60) 1.8 else if (n_lost > 30) 2.2 else 2.8
+p_h    <- max(10, n_lost * 0.32 + 3)
+
+p_lost <- ggplot(
+        lost_species |>
+            mutate(Species = fct_reorder(Species, last_year),
+                   Classification = factor(Classification,
+                                           levels = names(clf_colours))),
+        aes(x = last_year, y = Species, colour = Classification)) +
+    geom_vline(xintercept = cutoff_year, linetype = "dashed",
+               colour = "#aaaaaa", linewidth = 0.4) +
+    geom_segment(aes(x = min(last_year) - 2, xend = last_year,
+                     yend = Species),
+                 colour = "#e0e0e0", linewidth = 0.3) +
+    geom_point(aes(size = n_qualifying_caves), alpha = 0.85) +
+    scale_colour_manual(values = clf_colours, name = "Classification",
+                        drop = FALSE, na.value = "#bbbbbb") +
+    scale_size_continuous(name = "Qualifying\ncaves", range = c(1.5, 5)) +
+    scale_x_continuous(breaks = seq(1850, cutoff_year, 10)) +
+    annotate("text", x = cutoff_year + 0.5, y = 1,
+             label = paste0("cutoff\n", cutoff_year), hjust = 0,
+             size = 2.8, colour = "#888888") +
+    labs(title    = "Cave species flagged as 'lost?'",
+         subtitle = paste0("Last recorded ≥ 60 years ago in a cave sampled ≥ 2 times since\n",
+                           "n = ", n_lost, " species; point size = number of qualifying caves"),
+         x = "Year of last record", y = NULL) +
+    theme_cfg() +
+    theme(axis.text.y     = element_text(size = txt_sz, face = "italic"),
+          axis.ticks.y    = element_blank(),
+          legend.position = "right")
+save_plot(p_lost, "q_species_lost", w = 26, h = p_h)
+
 cat("\n================================================================\n")
 cat("DONE — results/ and plots/ updated\n")
 cat("================================================================\n")
