@@ -3,7 +3,6 @@
 # Outputs: results/q_species_*.tsv, plots/q_species_*.png
 # Requires cfg_spatial_analysis.R outputs for island distribution.
 
-.libPaths(c("/workspace/.Rlib", .libPaths()))
 library(sf)
 library(dplyr)
 library(tidyr)

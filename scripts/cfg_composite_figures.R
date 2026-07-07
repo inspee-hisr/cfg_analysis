@@ -5,7 +5,6 @@
 # Requires: cowplot, png, jpeg, grid (no magick needed)
 # Run from repo root: Rscript scripts/cfg_composite_figures.R
 
-.libPaths(c("/workspace/.Rlib", .libPaths()))
 library(ggplot2)
 library(cowplot)
 library(grid)

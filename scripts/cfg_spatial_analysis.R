@@ -1,6 +1,5 @@
 #!/usr/bin/env Rscript
 
-.libPaths(c("/workspace/.Rlib", .libPaths()))
 library(sf)
 library(units)
 library(ggplot2)

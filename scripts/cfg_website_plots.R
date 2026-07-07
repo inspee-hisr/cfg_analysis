@@ -1,6 +1,5 @@
 #!/usr/bin/env Rscript
 
-.libPaths(c("/workspace/.Rlib", .libPaths()))
 library(sf)
 library(ggplot2)
 library(tidyr)

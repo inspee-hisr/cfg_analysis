@@ -2,7 +2,6 @@
 # Answers to QUESTIONS.md — saves TSVs to results/ and plots to plots/.
 # All spatial operations use EPSG:3035 (LAEA).
 
-.libPaths(c("/workspace/.Rlib", .libPaths()))
 library(sf)
 library(dplyr)
 library(tidyr)

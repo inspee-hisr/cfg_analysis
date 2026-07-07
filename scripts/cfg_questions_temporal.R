@@ -3,7 +3,6 @@
 # author/journal contributions, sampling completeness (Chao1).
 # No spatial dependencies.
 
-.libPaths(c("/workspace/.Rlib", .libPaths()))
 library(dplyr)
 library(tidyr)
 library(readr)

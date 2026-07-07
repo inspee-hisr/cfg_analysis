@@ -3,7 +3,6 @@
 # Depends on cfg_spatial_analysis.R outputs: cfg_island_areas.tsv,
 #   cfg_island_species.tsv, cfg_caves_island_summary.tsv.
 
-.libPaths(c("/workspace/.Rlib", .libPaths()))
 library(dplyr)
 library(tidyr)
 library(readr)

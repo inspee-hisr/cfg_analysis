@@ -3,7 +3,6 @@
 # Outputs: results/q_caves_*.tsv, plots/q_caves_*.png
 # Run after cfg_spatial_analysis.R (needs caves_geology.tsv) and cfg_geology.R.
 
-.libPaths(c("/workspace/.Rlib", .libPaths()))
 library(sf)
 library(dplyr)
 library(tidyr)
