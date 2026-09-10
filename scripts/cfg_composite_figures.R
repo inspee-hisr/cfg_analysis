@@ -123,7 +123,7 @@ make_figure(
 )
 
 # ── Figure 3 — Sampling effort and knowledge gaps ─────────────────────────────
-# A: effort vs richness scatter    B: Chao1 completeness by region
+# A: effort vs richness scatter    B: Chao2 completeness by region
 # C: under-sampled caves           D: 'lost?' species timeline
 # E: Linnaean shortfall by order   F: references per cave distribution
 make_figure(

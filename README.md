@@ -35,6 +35,9 @@ Download the five TSV exports from the CFG database admin panel and place them i
 
 All commands run from the **repo root**. Scripts must be run in order.
 
+For regression checks and a single command to regenerate the corrected outputs,
+see [local run instructions](LOCAL_RUN.md).
+
 ```bash
 # 1. Spatial analysis — run first (produces island areas and richness map)
 Rscript scripts/cfg_spatial_analysis.R

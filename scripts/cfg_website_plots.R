@@ -536,10 +536,15 @@ caves_protection_data <- tibble(Caves_Protection=unlist(caves_protection),
     ungroup() |>
     dplyr::select(-Protection_Type_ab)
 
+# A cave can have several designations of the same protection type.
+# Frequencies use all caves as the denominator; types can overlap.
 caves_protection_data_summary_type <- caves_protection_data |>
     group_by(Protection_Type) |>
-    summarise(number_of_caves=n()) |>
-    mutate(frequency=round(number_of_caves/sum(number_of_caves),digits = 3))
+    summarise(number_of_caves = n_distinct(Cave_ID), .groups = "drop") |>
+    mutate(frequency = round(number_of_caves / n_distinct(caves$Cave_ID), 3))
+
+readr::write_tsv(caves_protection_data_summary_type,
+                 "results/website_caves_protection.tsv")
 
 # Define the order of the columns but simultaniously wrap
 # the text of the labels of the columns by replacing space with \n

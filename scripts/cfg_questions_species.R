@@ -221,8 +221,8 @@ cave_species_region <- census_all_species_all_caves |>
     group_by(NAME_2) |>
     summarise(
         n_species     = n_distinct(Species),
-        n_endemic     = n_distinct(Species[Distribution == "Endemic to Greece"]),
-        n_troglobiont = n_distinct(Species[Classification == "Troglobiont"]),
+        n_endemic     = n_distinct(Species[Distribution == "Endemic to Greece"], na.rm = TRUE),
+        n_troglobiont = n_distinct(Species[Classification == "Troglobiont"], na.rm = TRUE),
         n_caves       = n_distinct(Cave_ID),
         prop_endemic  = round(n_endemic / n_species, 3),
         .groups       = "drop"

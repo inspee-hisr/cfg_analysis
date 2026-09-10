@@ -1,6 +1,6 @@
 #!/usr/bin/env Rscript
 # Reference and temporal-dynamics questions: inventory, discovery curves,
-# author/journal contributions, sampling completeness (Chao1).
+# author/journal contributions, sampling completeness (Chao2).
 # No spatial dependencies.
 
 library(dplyr)
@@ -319,11 +319,11 @@ save_plot(p, "q_refs_species_per_ref", w = 18, h = 10)
 
 ################################################################
 cat("\n================================================================\n")
-cat("SAMPLING COMPLETENESS (Chao1 per region)\n")
+cat("SAMPLING COMPLETENESS (Chao2 per region)\n")
 cat("================================================================\n")
 
-# Q: Chao1 estimators per region
-cat("\n--- Q: Chao1 completeness estimates per region ---\n")
+# Q: Chao2 estimators per region
+cat("\n--- Q: Chao2 completeness estimates per region ---\n")
 
 # Build species × cave incidence matrix per region
 # Region comes from caves data, joined via census
@@ -338,7 +338,7 @@ census_region <- census_all_species |>
 
 regions <- sort(unique(census_region$Region))
 
-chao1_results <- lapply(regions, function(reg) {
+chao2_results <- lapply(regions, function(reg) {
     spp_per_cave <- census_region |>
         filter(Region == reg) |>
         select(Cave_ID, Species) |>
@@ -353,39 +353,37 @@ chao1_results <- lapply(regions, function(reg) {
 
     mat <- as.matrix(inc_wide |> select(-Cave_ID))
 
-    # estimateR expects species × sites (columns = sites)
-    # summing presences across caves gives frequency-based abundance for Chao1
-    # Use column sums as species abundance vector (number of caves each species occurs in)
-    col_sums <- colSums(mat)
-
-    est <- vegan::estimateR(col_sums)
+    # Cave records are incidences, not individual abundances. specpool uses
+    # species present in one/two caves and retains the number of sampling units.
+    # See https://vegandevs.github.io/vegan/reference/specpool.html
+    est <- vegan::specpool(mat, smallsample = TRUE)
 
     tibble(
         Region         = reg,
         n_caves        = n_distinct(spp_per_cave$Cave_ID),
-        observed_sp    = as.integer(est["S.obs"]),
-        chao1          = round(est["S.chao1"], 1),
-        chao1_se       = round(est["se.chao1"], 1),
-        prop_observed  = round(est["S.obs"] / est["S.chao1"], 3)
+        observed_sp    = as.integer(est$Species),
+        chao2          = round(est$chao, 1),
+        chao2_se       = round(est$chao.se, 1),
+        prop_observed  = round(est$Species / est$chao, 3)
     )
 })
 
-chao1_df <- bind_rows(Filter(Negate(is.null), chao1_results)) |>
+chao2_df <- bind_rows(Filter(Negate(is.null), chao2_results)) |>
     arrange(prop_observed)
-print(chao1_df)
-save_tsv(chao1_df, "q_sampling_completeness")
+print(chao2_df)
+save_tsv(chao2_df, "q_sampling_completeness")
 
-p <- ggplot(chao1_df |>
+p <- ggplot(chao2_df |>
                 mutate(Region = fct_reorder(Region, prop_observed)),
             aes(x = Region)) +
-    geom_col(aes(y = chao1), fill = seq_lo, width = 0.6) +
+    geom_col(aes(y = chao2), fill = seq_lo, width = 0.6) +
     geom_col(aes(y = observed_sp), fill = "#0072B2", width = 0.6) +
-    geom_text(aes(y = chao1, label = round(prop_observed, 2)),
+    geom_text(aes(y = chao2, label = round(prop_observed, 2)),
               hjust = -0.2, size = 3.2, colour = "#333333") +
     scale_y_continuous(expand = expansion(mult = c(0, 0.35))) +
     coord_flip() +
-    labs(title    = "Sampling completeness by region (Chao1 estimator)",
-         subtitle = "Dark blue = observed species; light blue = Chao1 estimate; label = proportion observed",
+    labs(title    = "Sampling completeness by region (Chao2 estimator)",
+         subtitle = "Dark blue = observed species; light blue = incidence-based Chao2 estimate; label = proportion observed",
          x = NULL, y = "Number of species") +
     theme_cfg_bar()
 save_plot(p, "q_sampling_completeness", w = 20, h = 13)
@@ -546,12 +544,25 @@ lost_check <- last_sp_cave |>
     summarise(n_later_refs = n_distinct(Reference_ID), .groups = "drop") |>
     filter(n_later_refs >= 2)
 
-# Species-level: flag "lost?" if qualifying in at least one cave
-lost_species <- lost_check |>
+# Keep local gaps even when a species has newer records elsewhere. References
+# to other fauna do not establish repeat surveys or local absence.
+species_last_record <- last_sp_cave |>
+    group_by(Species) |>
+    summarise(last_year = max(last_year_in_cave), .groups = "drop")
+
+local_record_gaps <- lost_check |>
+    left_join(species_last_record, by = "Species") |>
+    mutate(recorded_since_cutoff = last_year > cutoff_year,
+           cutoff_year = cutoff_year)
+save_tsv(local_record_gaps, "q_species_local_record_gaps")
+
+# Species-level candidates must have no newer record anywhere in CFG.
+lost_species <- local_record_gaps |>
+    filter(!recorded_since_cutoff) |>
     group_by(Species) |>
     summarise(
         n_qualifying_caves = n_distinct(Cave_ID),
-        last_year          = max(last_year_in_cave),
+        last_year          = first(last_year),
         max_later_refs     = max(n_later_refs),
         qualifying_caves   = paste(sort(unique(Cave_ID)), collapse = "|"),
         .groups            = "drop"
@@ -559,10 +570,10 @@ lost_species <- lost_check |>
     left_join(species |> select(Species_Full_Name, Classification, Order, Family,
                                  Distribution, IUCN_Red_List),
               by = c("Species" = "Species_Full_Name")) |>
-    mutate(status = "lost?") |>
+    mutate(status = "No recent CFG record", cutoff_year = cutoff_year) |>
     arrange(last_year, Species)
 
-cat("Species flagged 'lost?':", nrow(lost_species), "\n")
+cat("Species with no recent CFG record:", nrow(lost_species), "\n")
 cat("\nBy classification:\n")
 print(lost_species |> count(Classification, sort = TRUE))
 cat("\nBy Order (top 10):\n")
@@ -597,10 +608,11 @@ p_lost <- ggplot(
     annotate("text", x = cutoff_year + 0.5, y = 1,
              label = paste0("cutoff\n", cutoff_year), hjust = 0,
              size = 2.8, colour = "#888888") +
-    labs(title    = "Cave species flagged as 'lost?'",
-         subtitle = paste0("Last recorded ≥ 60 years ago in a cave sampled ≥ 2 times since\n",
+    labs(title    = "Species with no CFG record for at least 60 years",
+         subtitle = paste0("No newer record anywhere in CFG; ≥ 2 later references to a previously occupied cave\n",
                            "n = ", n_lost, " species; point size = number of qualifying caves"),
-         x = "Year of last record", y = NULL) +
+         caption = "A bibliographic record gap does not establish extinction or repeat survey effort.",
+         x = "Year of last record anywhere in CFG", y = NULL) +
     theme_cfg() +
     theme(axis.text.y     = element_text(size = txt_sz, face = "italic"),
           axis.ticks.y    = element_blank(),

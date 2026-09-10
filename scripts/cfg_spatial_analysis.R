@@ -29,14 +29,14 @@ geopark <- sf::st_read("spatial_data/geopark_borders_mod/geopark_borders_mod.shp
 
 ####################### caves sf ###################
 caves_sf <- caves |>
-    filter(!(is.na(Longitude))) |>
+    filter(!is.na(Longitude), !is.na(Latitude)) |>
     st_as_sf(coords=c("Longitude","Latitude"),
              remove=F,
              crs = 4326) |>
     sf::st_transform(crs = 3035)
 
 locations_inland <- census_all_species_all_caves |>
-    filter(!(is.na(Longitude))) |>
+    filter(!is.na(Longitude), !is.na(Latitude)) |>
     st_as_sf(coords=c("Longitude","Latitude"),
              remove=F,
              crs = 4326) |>
@@ -47,10 +47,13 @@ grid_10k <- st_read("spatial_data/Greece_shapefile/gr_10km.shp", quiet = TRUE) |
 
 #grid_10k_shapefile_dataframe <- broom::tidy(grid_10k_shapefile_wgs84)
 
-locations_10_grid_species <- st_join(grid_10k, locations_inland, left=F) |>
-    distinct(geometry,CELLCODE, Latitude, Longitude, Species) |>
-    group_by(geometry,CELLCODE) |>
-    summarise(n_species=n(),.groups="keep")
+locations_10_grid_species <- st_join(
+    grid_10k,
+    locations_inland |> filter(!is.na(Species), !grepl("\\bsp\\.$", Species)),
+    left = FALSE) |>
+    distinct(geometry, CELLCODE, Species) |>
+    group_by(geometry, CELLCODE) |>
+    summarise(n_species = n(), .groups = "drop")
 
 locations_10_grid_samples <- st_join(grid_10k, locations_inland, left=F) |>
     distinct(geometry,CELLCODE, Latitude, Longitude) |>
@@ -215,6 +218,7 @@ cg_sfc   <- st_cast(st_geometry(greece_regions |>
                                     st_make_valid()), "POLYGON")
 cg_areas <- set_units(st_area(cg_sfc), km^2)
 evia_idx <- which(cg_areas > set_units(1000, km^2) & cg_areas < set_units(4000, km^2))
+if (length(evia_idx) != 1L) stop("Expected exactly one Evia polygon.")
 evia <- st_sf(
     geometry    = st_sfc(cg_sfc[[evia_idx]], crs = 3035),
     is_island   = TRUE,
@@ -225,9 +229,23 @@ evia <- st_sf(
     area_island = round(cg_areas[evia_idx], 4)
 )
 
-# Remove individual Crete municipality polygons, add merged Crete + Evia
-greece_islands_final <- greece_islands |>
-    filter(!(id %in% crete_only$id)) |>
+# Remove Evia's footprint from the original municipalities, retaining their
+# mainland and satellite-island parts. Then add the single Evia feature.
+greece_islands_remainder <- greece_islands |>
+    filter(!(id %in% crete_only$id))
+evia_overlap <- lengths(st_intersects(greece_islands_remainder, evia)) > 0L
+# sf's vector difference can drop empty results. Process each feature separately
+# and retain explicit empty geometries so municipality IDs cannot shift.
+evia_remainders <- lapply(st_geometry(greece_islands_remainder)[evia_overlap], function(g) {
+    remainder <- st_difference(st_sfc(g, crs = 3035), st_geometry(evia))
+    if (length(remainder) == 0L) st_multipolygon() else remainder[[1]]
+})
+st_geometry(greece_islands_remainder)[evia_overlap] <- st_sfc(evia_remainders, crs = 3035)
+greece_islands_remainder <- greece_islands_remainder |>
+    filter(!st_is_empty(geometry), as.numeric(st_area(geometry)) > 0) |>
+    mutate(area_island = round(set_units(st_area(geometry), km^2), 4))
+
+greece_islands_final <- greece_islands_remainder |>
     bind_rows(crete_only_one) |>
     bind_rows(evia)
 
@@ -248,12 +266,30 @@ ggsave("islands_gr.png",
 ############ island species analysis (all species) ##########
 
 # Join all species locations to island/mainland polygons
-all_species_islands <- sf::st_join(locations_inland,
+all_taxa_islands <- sf::st_join(locations_inland,
                                    greece_islands_final,
                                    join = sf::st_intersects) |>
     sf::st_drop_geometry() |>
     distinct(Cave_ID, Species, region_type, NAME_2, NAME_3, is_island) |>
-    filter(!is.na(region_type))
+    filter(!is.na(region_type)) |>
+    group_by(Cave_ID) |>
+    # Assign the shared shoreline to Evia if a point touches both geometries.
+    filter(!any(NAME_3 == "Evia") | NAME_3 == "Evia") |>
+    ungroup()
+
+ambiguous_caves <- all_taxa_islands |>
+    distinct(Cave_ID, region_type) |>
+    count(Cave_ID) |>
+    filter(n > 1L)
+if (nrow(ambiguous_caves) > 0L) {
+    stop("Caves assigned to both island and mainland: ",
+         paste(ambiguous_caves$Cave_ID, collapse = ", "))
+}
+
+# Keep unidentified records for cave sampling effort, but exclude them from
+# named-species distributions and richness throughout downstream analyses.
+all_species_islands <- all_taxa_islands |>
+    filter(!is.na(Species), !grepl("\\bsp\\.$", Species))
 
 # Classify each species by whether it occurs on islands, mainland, or both
 species_island_mainland <- all_species_islands |>
@@ -270,9 +306,10 @@ species_island_mainland <- all_species_islands |>
     ))
 
 # Cave-level island summary
-caves_island_summary <- all_species_islands |>
+caves_island_summary <- all_taxa_islands |>
     group_by(Cave_ID, NAME_2, NAME_3, region_type, is_island) |>
-    summarise(n_species = n_distinct(Species), .groups = "drop")
+    summarise(n_species = n_distinct(
+        Species[!is.na(Species) & !grepl("\\bsp\\.$", Species)]), .groups = "drop")
 
 # Island areas (km²) for SAR analysis in cfg_questions_islands.R
 island_areas <- greece_islands_final |>

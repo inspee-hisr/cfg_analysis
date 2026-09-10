@@ -179,15 +179,22 @@ cat("================================================================\n")
 
 # Q: Region with highest total and mean species richness
 cat("\n--- Q: Region total and mean species richness ---\n")
+# Regional richness is the union of cave species, not their summed richness.
+regional_species_totals <- census_all_species_all_caves |>
+    filter(!is.na(Species), !grepl("\\bsp\\.$", Species)) |>
+    group_by(Region) |>
+    summarise(total_species = n_distinct(Species), .groups = "drop")
+
 caves_region_richness <- caves_full |>
     group_by(Region) |>
     summarise(
         n_caves        = n(),
-        total_species  = sum(n_species),
         mean_species   = round(mean(n_species), 2),
         median_species = round(median(n_species), 2),
         .groups        = "drop"
     ) |>
+    left_join(regional_species_totals, by = "Region") |>
+    mutate(total_species = replace_na(total_species, 0L)) |>
     arrange(desc(total_species))
 print(caves_region_richness)
 save_tsv(caves_region_richness, "q_caves_region_richness")

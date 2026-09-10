@@ -15,6 +15,7 @@ library(ggrepel)
 
 source("scripts/cfg_load_data.R")
 source("scripts/cfg_plot_style.R")
+source("scripts/cfg_sar_bootstrap.R")
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 save_tsv <- function(df, name) {
@@ -35,7 +36,8 @@ cat("================================================================\n")
 island_areas   <- read_delim("results/cfg_island_areas.tsv",
                               delim = "\t", show_col_types = FALSE)
 island_species <- read_delim("results/cfg_island_species.tsv",
-                              delim = "\t", show_col_types = FALSE)
+                              delim = "\t", show_col_types = FALSE) |>
+    filter(!is.na(Species), !grepl("\\bsp\\.$", Species))
 caves_island   <- read_delim("results/cfg_caves_island_summary.tsv",
                               delim = "\t", show_col_types = FALSE)
 
@@ -50,9 +52,9 @@ island_sp_counts <- island_species |>
     group_by(NAME_2, NAME_3) |>
     summarise(
         n_species     = n_distinct(Species),
-        n_endemic     = n_distinct(Species[Distribution == "Endemic to Greece"]),
+        n_endemic     = n_distinct(Species[Distribution == "Endemic to Greece"], na.rm = TRUE),
         n_obligate    = n_distinct(Species[Classification %in% c("Troglobiont","Stygobiont")]),
-        n_troglobiont = n_distinct(Species[Classification == "Troglobiont"]),
+        n_troglobiont = n_distinct(Species[Classification == "Troglobiont"], na.rm = TRUE),
         .groups       = "drop"
     )
 
@@ -251,100 +253,30 @@ print(sar_eff_results |> select(type, n_islands, z_naive, z_eff, z_eff_lo, z_eff
                                  beta_effort, r2_eff, p_area_eff))
 save_tsv(sar_eff_results, "q_islands_sar_effort_corrected")
 
-# ── Test: obligate z vs non-obligate z ───────────────────────────────────────
-# Method 1 — Wald test on separate models (independent coefficients)
-# The two groups are mutually exclusive so models are independent;
-# SE of the difference = sqrt(SE_obl^2 + SE_nobl^2).
-cat("\n--- Slope comparison: obligate vs non-obligate ---\n")
-df_obl_fit  <- sar_eff |> filter(n_obligate     > 0, n_caves >= 1)
-df_nobl_fit <- sar_eff |> filter(n_non_obligate > 0, n_caves >= 1)
-
-fit_obl  <- lm(log10(n_obligate)     ~ log_A + log_E, data = df_obl_fit)
-fit_nobl <- lm(log10(n_non_obligate) ~ log_A + log_E, data = df_nobl_fit)
-
-z_obl  <- coef(fit_obl) ["log_A"];  se_obl  <- coef(summary(fit_obl)) ["log_A","Std. Error"]
-z_nobl <- coef(fit_nobl)["log_A"];  se_nobl <- coef(summary(fit_nobl))["log_A","Std. Error"]
-
-delta_z    <- round(z_obl - z_nobl, 3)
-se_delta   <- sqrt(se_obl^2 + se_nobl^2)
-wald_stat  <- delta_z / se_delta
-delta_z_ci <- round(delta_z + c(-1, 1) * qnorm(0.975) * se_delta, 3)
-wald_p     <- round(2 * (1 - pnorm(abs(wald_stat))), 5)   # two-sided
-wald_p_one <- round(pnorm(-wald_stat), 5)                  # one-sided: H_A: z_obl > z_nobl
-
-cat("z_obligate (effort-corrected) =", round(z_obl, 3),
-    "   SE =", round(se_obl, 3), "\n")
-cat("z_non-obligate (effort-corrected) =", round(z_nobl, 3),
-    "   SE =", round(se_nobl, 3), "\n")
-cat("z_obligate − z_non-obligate = ", delta_z,
-    "  95% CI [", delta_z_ci[1], ",", delta_z_ci[2], "]\n")
-cat("  Wald two-sided p =", wald_p,
-    "  one-sided (z_obl > z_nobl) p =", wald_p_one, "\n")
-if (delta_z_ci[1] > 0) {
-    cat("  → CI entirely > 0: obligate z significantly STEEPER after effort correction.\n")
-    cat("  → Consistent with stronger dispersal limitation in obligate cave fauna.\n")
-} else {
-    cat("  → CI overlaps 0: slope difference not significant at α = 0.05.\n")
-}
-
-# Method 2 — Fully parameterized stacked model (each group gets its own effort slope)
-# fauna*(log_A + log_E) allows separate z and beta_effort per fauna type.
-# The fauna:log_A interaction is the slope difference; no shared-slope constraint.
-df_stacked <- bind_rows(
-    df_obl_fit  |> transmute(NAME_3, richness = n_obligate,     log_A, log_E, fauna = "Obligate"),
-    df_nobl_fit |> transmute(NAME_3, richness = n_non_obligate, log_A, log_E, fauna = "Non-obligate")
-) |> mutate(fauna = factor(fauna, levels = c("Non-obligate", "Obligate")))
-
-fit_stack <- lm(log10(richness) ~ fauna * (log_A + log_E), data = df_stacked)
-stack_sum <- summary(fit_stack)
-stack_ci  <- confint(fit_stack, level = 0.95)
-int_term  <- "faunaObligate:log_A"
-stacked_delta    <- round(coef(fit_stack)[int_term], 3)
-stacked_delta_ci <- round(stack_ci[int_term, ], 3)
-stacked_delta_p  <- round(coef(stack_sum)[int_term, "Pr(>|t|)"], 5)
-cat("Stacked model (fauna*(log_A+log_E)):\n")
-cat("  Interaction (z_obl − z_nobl) =", stacked_delta,
-    "  95% CI [", stacked_delta_ci[1], ",", stacked_delta_ci[2], "]\n")
-cat("  p (interaction) =", stacked_delta_p, "\n")
-
-# ── Bootstrap sensitivity check ──────────────────────────────────────────────
-# Resample islands (with replacement) 4 000 times; refit both effort-corrected
-# models; record z_obligate − z_non-obligate.
-cat("\nBootstrap test (B = 4000): z_obligate − z_non-obligate\n")
-set.seed(2024)
-B <- 4000
-
-boot_diff <- vapply(seq_len(B), function(i) {
-    tryCatch({
-        b_o  <- df_obl_fit [sample(nrow(df_obl_fit),  replace = TRUE), ]
-        b_n  <- df_nobl_fit[sample(nrow(df_nobl_fit), replace = TRUE), ]
-        zo   <- coef(lm(log10(n_obligate)     ~ log_A + log_E, data = b_o))["log_A"]
-        zn   <- coef(lm(log10(n_non_obligate) ~ log_A + log_E, data = b_n))["log_A"]
-        zo - zn
-    }, error = function(e) NA_real_)
-}, FUN.VALUE = numeric(1))
-
-boot_diff <- boot_diff[!is.na(boot_diff)]
-boot_ci95 <- quantile(boot_diff, c(0.025, 0.975))
-boot_p    <- mean(boot_diff <= 0)   # one-sided: P(z_obl ≤ z_nobl)
-
-cat("Bootstrap 95% CI of (z_obligate − z_non-obligate): [",
-    round(boot_ci95[1], 3), ",", round(boot_ci95[2], 3), "]\n")
-cat("Bootstrap P(z_obligate ≤ z_non-obligate) =", round(boot_p, 4), "\n")
+# ── Paired island bootstrap: obligate vs non-obligate SAR slopes ────────────
+# Both fauna groups share the same islands. Resample whole islands together,
+# then fit each group's positive-richness subset within that same draw.
+cat("\n--- Paired island bootstrap: obligate vs non-obligate slopes ---\n")
+B <- 4000L
+sar_comparison_data <- sar_eff |> filter(n_caves >= 1)
+sar_boot <- bootstrap_sar_difference(sar_comparison_data, B = B)
 
 slope_comparison <- tibble(
-    method      = c("Wald test (independent models)",
-                    "Stacked model (fauna * (log_A + log_E))",
-                    "Bootstrap (B = 4 000)"),
-    delta_z     = c(delta_z,         stacked_delta,         round(mean(boot_diff), 3)),
-    ci_lo       = c(delta_z_ci[1],   stacked_delta_ci[1],   round(boot_ci95[1], 3)),
-    ci_hi       = c(delta_z_ci[2],   stacked_delta_ci[2],   round(boot_ci95[2], 3)),
-    p_value     = c(wald_p_one,      stacked_delta_p,       round(boot_p, 4)),
-    p_type      = c("one-sided (z_obl>z_nobl)", "two-sided", "one-sided (z_obl>z_nobl)"),
-    significant = c(wald_p_one < 0.05, stacked_delta_p < 0.05, boot_p < 0.05)
+    method = "Paired island bootstrap (percentile 95% CI)",
+    n_islands = nrow(sar_comparison_data),
+    n_obligate_islands = sum(sar_comparison_data$n_obligate > 0),
+    n_non_obligate_islands = sum(sar_comparison_data$n_non_obligate > 0),
+    n_bootstrap = B,
+    n_valid = sar_boot$n_valid,
+    delta_z = sar_boot$delta_z,
+    ci_lo = sar_boot$ci[1],
+    ci_hi = sar_boot$ci[2],
+    bootstrap_fraction_nonpositive = sar_boot$fraction_nonpositive,
+    ci_excludes_zero = sar_boot$ci[1] > 0 || sar_boot$ci[2] < 0
 )
 print(slope_comparison)
 save_tsv(slope_comparison, "q_islands_sar_slope_comparison")
+cat("Tail fraction is descriptive, not a hypothesis-test p-value.\n")
 
 # ── Partial regression plot (effort partialled out) ───────────────────────────
 # Partial residuals: regress out log_E from both log_A and log10(richness),
@@ -787,6 +719,16 @@ save_plot(p_density, "q_islands_density", w = 20, h = 14)
 
 # Q: Island group comparison
 cat("\n--- Q: Island group comparison ---\n")
+# Pool species identities across islands before counting a group's richness.
+island_group_totals <- island_species |>
+    filter(is_island) |>
+    left_join(species |> select(Species_Full_Name, Distribution),
+              by = c("Species" = "Species_Full_Name")) |>
+    group_by(NAME_2) |>
+    summarise(total_species = n_distinct(Species, na.rm = TRUE),
+              total_endemic = n_distinct(Species[Distribution == "Endemic to Greece"],
+                                         na.rm = TRUE), .groups = "drop")
+
 island_group_comp <- island_summary |>
     group_by(NAME_2) |>
     summarise(
@@ -795,10 +737,9 @@ island_group_comp <- island_summary |>
         mean_species   = round(mean(n_species), 1),
         mean_endemic   = round(mean(n_endemic), 1),
         mean_obligate  = round(mean(n_obligate), 1),
-        total_species  = sum(n_species),
-        total_endemic  = sum(n_endemic),
         .groups        = "drop"
-    )
+    ) |>
+    left_join(island_group_totals, by = "NAME_2")
 print(island_group_comp)
 save_tsv(island_group_comp, "q_islands_group_comparison")
 
@@ -865,8 +806,9 @@ strict_island_endemic <- island_species |>
     filter(is_island) |>
     group_by(Species) |>
     summarise(
-        n_islands  = n_distinct(NAME_3),
+        n_islands  = n_distinct(NAME_2, NAME_3),
         islands    = paste(sort(unique(NAME_3)), collapse = "|"),
+        NAME_2     = first(NAME_2),
         NAME_3     = first(NAME_3),
         .groups    = "drop"
     ) |>
@@ -876,6 +818,7 @@ strict_island_endemic <- island_species |>
                               pull(Species))) |>
     left_join(species |> select(Species_Full_Name, Classification, Distribution),
               by = c("Species" = "Species_Full_Name")) |>
+    filter(Distribution == "Endemic to Greece") |>
     arrange(NAME_3, Species)
 
 cat("Strict single-island endemic species:", nrow(strict_island_endemic), "\n")
@@ -894,7 +837,7 @@ p_strict <- strict_island_endemic |>
     scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +
     coord_flip() +
     labs(title    = "Strict single-island endemic species by island",
-         subtitle = "Species with records on only one island and no mainland record",
+         subtitle = "Greek endemics recorded in one mapped island unit and no mainland",
          x = NULL, y = "Number of species") +
     theme_cfg_bar() + theme(legend.position = "bottom")
 save_plot(p_strict, "q_islands_strict_endemic", w = 20, h = 14)
@@ -908,7 +851,7 @@ group_species <- island_species |>
 
 # Presence/absence matrix: rows = island groups, columns = species
 island_groups <- sort(unique(group_species$NAME_2))
-all_spp       <- sort(unique(group_species$Species))
+all_spp       <- sort(union(group_species$Species, mainland_spp))
 
 pa_matrix <- matrix(0L, nrow = length(island_groups), ncol = length(all_spp),
                     dimnames = list(island_groups, all_spp))
@@ -918,13 +861,13 @@ for (grp in island_groups) {
 }
 
 # Include mainland as a group
-mainland_spp_vec <- intersect(mainland_spp, all_spp)
+mainland_spp_vec <- mainland_spp
 mainland_row <- matrix(0L, nrow = 1, ncol = length(all_spp),
                        dimnames = list("Mainland", all_spp))
 mainland_row[1, mainland_spp_vec] <- 1L
 pa_full <- rbind(pa_matrix, mainland_row)
 
-jacc_dist <- vegan::vegdist(pa_full, method = "jaccard")
+jacc_dist <- vegan::vegdist(pa_full, method = "jaccard", binary = TRUE)
 jacc_mat  <- as.matrix(jacc_dist)
 
 jacc_df <- as.data.frame(jacc_mat) |>
